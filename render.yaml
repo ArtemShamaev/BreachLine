@@ -1,9 +1,11 @@
-# Render.com Blueprint: the free web service serves the game and the multiplayer relay.
+# Render.com Blueprint: Breachline is a single static HTML page, no server needed.
 services:
   - type: web
-    name: barnocraft-web
-    runtime: node
-    plan: free
-    buildCommand: node --version
-    startCommand: node server.js
-    healthCheckPath: /
+    name: breachline
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
