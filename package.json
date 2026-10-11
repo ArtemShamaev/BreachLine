@@ -1,0 +1,5 @@
+{
+  "name": "breachline-web", "version": "1.1.0", "private": true,
+  "scripts": {"start": "node server.js", "test": "node --test test/*.test.js"},
+  "engines": {"node": ">=18"}
+}

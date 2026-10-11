@@ -1,11 +1,9 @@
-# Render.com Blueprint: Breachline is a single static HTML page, no server needed.
 services:
   - type: web
     name: breachline
-    runtime: static
-    buildCommand: ""
-    staticPublishPath: .
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: no-cache
+    runtime: node
+    buildCommand: "npm install --omit=dev"
+    startCommand: "npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production

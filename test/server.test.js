@@ -1,0 +1,159 @@
+'use strict';
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
+const { mkdtemp, readFile, readdir, rm, writeFile } = require('node:fs/promises');
+const net = require('node:net');
+const crypto = require('node:crypto');
+const os = require('node:os');
+const path = require('node:path');
+let server, dir, base, port;
+async function startServer() {
+  server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir }, stdio: ['ignore','pipe','pipe'] });
+  await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(Error('Server exited: '+code))); });
+}
+async function stopServer() { const s = server; server = null; if (s && s.exitCode === null) await new Promise(resolve => { s.once('exit', resolve); s.kill(); }); }
+before(async () => {
+  dir = await mkdtemp(path.join(os.tmpdir(), 'breachline-test-'));
+  // A v1 account (name "Ветеран", password "veteran-pass") must survive the migration.
+  const salt = 'ab'.repeat(16), hash = crypto.scryptSync('veteran-pass', salt, 64).toString('hex');
+  const legacyId = crypto.createHash('sha256').update('ветеран').digest('hex');
+  await writeFile(path.join(dir, legacyId + '.json'), JSON.stringify({ name: 'Ветеран', salt, hash }));
+  await writeFile(path.join(dir, legacyId + '.save.json'), JSON.stringify({ save: { version: 1, date: 1, entities: [] } }));
+  port = await new Promise(resolve => { const s = net.createServer(); s.listen(0,'127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+  base = 'http://127.0.0.1:' + port;
+  await startServer();
+});
+after(async () => { await stopServer(); if (dir) await rm(dir, { recursive: true, force: true }); });
+async function api(route, method = 'GET', body, cookie) {
+  const response = await fetch(base + '/api/' + route, { method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], data: await response.json() };
+}
+const save = { version:1, date: 1000, entities: Array.from({length:10},(_,id)=>({id})), marker:'preserved' };
+test('registration validates names and passwords', async () => {
+  for (const [body, error] of [
+    [{ name:'ab', password:'strong-pass-123' }, 'name_invalid'],
+    [{ name:'Аdmin', password:'strong-pass-123' }, 'name_mixed'],
+    [{ name:'Validname', password:'short' }, 'password_invalid'],
+    [{ name:'Validname', password:'my-validname-1' }, 'password_has_name'],
+  ]) { const r = await api('register','POST',body); assert.equal(r.status,400); assert.equal(r.data.error,error); }
+  const r = await fetch(base + '/api/register', { method:'POST', headers:{ 'content-type':'text/plain' }, body:'{}' });
+  assert.equal(r.status,415);
+});
+test('accounts: register, log in, isolate saves, persist sessions across restarts', async () => {
+  const a = await api('register','POST',{ name:'Тестер', password:'strong-pass-123' });
+  assert.equal(a.status,201); assert.equal(a.data.user.name,'Тестер'); assert.match(a.cookie,/^bl_sid=[\w-]{43}$/);
+  assert.equal((await api('register','POST',{ name:'ТЕСТЕР',password:'strong-pass-123' })).data.error,'name_taken');
+  assert.equal((await api('login','POST',{name:'Тестер', password:'incorrect'})).data.error,'bad_credentials');
+  const login = await api('login','POST',{name:'тестер',password:'strong-pass-123'}); assert.equal(login.status,200);
+  assert.equal((await api('me','GET',null,login.cookie)).data.user.id,a.data.user.id);
+  assert.equal((await api('save')).status,401);
+  assert.equal((await api('save','PUT',{ save:{ ...save, entities:[] } },login.cookie)).data.error,'bad_save');
+  assert.equal((await api('save','PUT',{ save },login.cookie)).status,200);
+  assert.deepEqual((await api('save','GET',null,a.cookie)).data.save,save);
+  const b = await api('register','POST',{name:'Another',password:'different-pass'});
+  assert.equal((await api('save','GET',null,b.cookie)).data.save,null);
+
+  const db = JSON.parse(await readFile(path.join(dir,'accounts.json'),'utf8'));
+  const user = db.users[a.data.user.id];
+  assert.equal(user.password,undefined); assert.equal(user.hash.length,128);
+  assert.ok(!JSON.stringify(db).includes(a.cookie.split('=')[1]), 'raw session tokens must not be stored');
+
+  await stopServer(); await startServer();
+  assert.equal((await api('me','GET',null,a.cookie)).data.user.name,'Тестер');
+  assert.deepEqual((await api('save','GET',null,a.cookie)).data.save,save);
+
+  await api('logout','POST',null,login.cookie);
+  assert.equal((await api('save','GET',null,login.cookie)).status,401);
+  assert.equal((await api('me','GET',null,a.cookie)).data.user.name,'Тестер');
+});
+test('password change and sign-out ends other sessions', async () => {
+  await api('register','POST',{ name:'Changer', password:'first-pass-1' });
+  const laptop = await api('login','POST',{ name:'changer', password:'first-pass-1' }), phone = await api('login','POST',{ name:'changer', password:'first-pass-1' });
+  assert.equal((await api('password','POST',{ current:'wrong-pass-1', next:'second-pass-2' },laptop.cookie)).data.error,'wrong_password');
+  const changed = await api('password','POST',{ current:'first-pass-1', next:'second-pass-2' },laptop.cookie);
+  assert.equal(changed.status,200);
+  assert.equal((await api('me','GET',null,phone.cookie)).data.user,null);
+  assert.equal((await api('me','GET',null,laptop.cookie)).data.user,null);
+  assert.equal((await api('me','GET',null,changed.cookie)).data.user.name,'Changer');
+  assert.equal((await api('login','POST',{ name:'Changer', password:'first-pass-1' })).status,401);
+  const tablet = await api('login','POST',{ name:'Changer', password:'second-pass-2' });
+  assert.equal((await api('logout-others','POST',{},changed.cookie)).data.revoked,1);
+  assert.equal((await api('me','GET',null,tablet.cookie)).data.user,null);
+});
+test('account deletion removes the account, sessions and save', async () => {
+  const r = await api('register','POST',{ name:'Leaver', password:'leaving-pass-1' });
+  await api('save','PUT',{ save },r.cookie);
+  assert.equal((await api('account','DELETE',{ password:'nope-nope-1' },r.cookie)).status,403);
+  assert.equal((await api('account','DELETE',{ password:'leaving-pass-1' },r.cookie)).status,200);
+  assert.equal((await api('me','GET',null,r.cookie)).data.user,null);
+  assert.equal((await api('login','POST',{ name:'Leaver', password:'leaving-pass-1' })).status,401);
+  assert.ok(!(await readdir(path.join(dir,'saves'))).includes(r.data.user.id + '.json'));
+  assert.equal((await api('register','POST',{ name:'Leaver', password:'leaving-pass-2' })).status,201);
+});
+test('profile: emblem avatar, uploaded picture and match stats', async () => {
+  const r = await api('register','POST',{ name:'Painter', password:'brush-strokes-1' }); assert.equal(r.status,201,JSON.stringify(r.data)); const id = r.data.user.id;
+  assert.deepEqual(r.data.user.stats,{ matches:0, wins:0, kills:0, deaths:0 });
+  assert.ok(Number.isInteger(r.data.user.avatar.icon) && Number.isInteger(r.data.user.avatar.color));
+  assert.equal((await api('profile','PUT',{ avatar:{ icon:99, color:0 } },r.cookie)).data.error,'bad_avatar');
+  assert.deepEqual((await api('profile','PUT',{ avatar:{ icon:3, color:5 } },r.cookie)).data.user.avatar,{ icon:3, color:5 });
+  const html = 'data:image/png;base64,' + Buffer.from('<script>alert(1)</script>').toString('base64');
+  assert.equal((await api('avatar','PUT',{ image:html },r.cookie)).data.error,'bad_image');
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4f10000000049454e44ae426082','hex');
+  const up = await api('avatar','PUT',{ image:'data:image/png;base64,' + png.toString('base64') },r.cookie);
+  assert.equal(up.data.user.avatar.image,'png');
+  const picture = await fetch(base + '/api/avatar/' + id);
+  assert.equal(picture.headers.get('content-type'),'image/png'); assert.deepEqual(Buffer.from(await picture.arrayBuffer()),png);
+  assert.equal((await api('profile','PUT',{ avatar:{ icon:1, color:1 } },r.cookie)).data.user.avatar.image,undefined);
+  assert.equal((await fetch(base + '/api/avatar/' + id)).status,404);
+  const stats = await api('stats','POST',{ won:true, kills:7, deaths:2 },r.cookie);
+  assert.deepEqual(stats.data.user.stats,{ matches:1, wins:1, kills:7, deaths:2 });
+  assert.equal((await api('stats','POST',{ won:false, kills:1, deaths:1 },r.cookie)).status,429);
+  assert.equal((await api('stats','POST',{ won:true, kills:-1, deaths:0 })).status,401);
+  assert.deepEqual((await api('me','GET',null,r.cookie)).data.user.stats,stats.data.user.stats);
+});
+test('v1 accounts and saves are migrated', async () => {
+  const r = await api('login','POST',{ name:'ветеран', password:'veteran-pass' });
+  assert.equal(r.status,200); assert.equal(r.data.user.name,'Ветеран');
+  assert.equal((await api('save','GET',null,r.cookie)).data.save.date,1);
+  assert.ok((await readdir(path.join(dir,'legacy-v1'))).length === 2);
+});
+test('repeated wrong passwords lock that name for a while', async () => {
+  await api('register','POST',{ name:'Target', password:'target-pass-1' });
+  for (let i = 0; i < 10; i++) assert.equal((await api('login','POST',{ name:'Target', password:'guess-' + i + '-xx' })).status,401);
+  assert.equal((await api('login','POST',{ name:'Target', password:'target-pass-1' })).data.error,'rate_limited');
+});
+test('server exposes only game files and refuses cross-origin account changes',async()=>{
+  for (const file of ['server.js','accounts.js','package.json','data/test.json','accounts.json','.git/config','%ZZ']) assert.equal((await fetch(base+'/'+file)).status,404);
+  assert.equal((await fetch(base+'/game.js')).status,200);
+  const r = await fetch(base+'/api/register',{method:'POST',headers:{Origin:'http://unrelated.example','content-type':'application/json'},body:'{}'}); assert.equal(r.status,403);
+});
+async function socket(cookie) {
+  const url = new URL(base), raw = net.connect(Number(url.port),'127.0.0.1');
+  let buffer = Buffer.alloc(0), upgraded = false;
+  const messages = [], waiters = [];
+  const deliver = m => { if (waiters.length) waiters.shift()(m); else messages.push(m); };
+  raw.on('data', chunk => {
+    buffer = Buffer.concat([buffer,chunk]);
+    if (!upgraded) { const end = buffer.indexOf('\r\n\r\n'); if(end<0)return; assert.match(buffer.subarray(0,end).toString(),/101 Switching/);buffer=buffer.subarray(end+4);upgraded=true; }
+    while(buffer.length>=2) {
+      let n=buffer[1]&127, off=2; if(n===126){if(buffer.length<4)return;n=buffer.readUInt16BE(2);off=4;} if(n===127){if(buffer.length<10)return;n=Number(buffer.readBigUInt64BE(2));off=10;}
+      if(buffer.length<off+n)return; const op=buffer[0]&15,payload=buffer.subarray(off,off+n);buffer=buffer.subarray(off+n);if(op===1)deliver(JSON.parse(payload));
+    }
+  });
+  await new Promise(resolve=>raw.once('connect',resolve));
+  raw.write(`GET /ws HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${base}\r\n${cookie ? 'Cookie: ' + cookie + '\r\n' : ''}Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\n\r\n`);
+  return { close:()=>raw.destroy(), send(m) { const p=Buffer.from(JSON.stringify(m)), mask=crypto.randomBytes(4);let h;if(p.length<126)h=Buffer.from([129,128|p.length]);else {h=Buffer.alloc(4);h[0]=129;h[1]=254;h.writeUInt16BE(p.length,2);} for(let i=0;i<p.length;i++)p[i]^=mask[i%4];raw.write(Buffer.concat([h,mask,p])); }, next(){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('WebSocket timeout')),3000);const done=m=>{clearTimeout(timer);resolve(m);};if(messages.length)done(messages.shift());else waiters.push(done);});} };
+}
+test('LAN room lifecycle, state relay and input relay',async()=>{
+  const player = await api('register','POST',{ name:'Netplayer', password:'net-pass-123' });
+  const host=await socket(), guest=await socket(player.cookie), duplicate=await socket();
+  try {
+    host.send({type:'relay-hello',proto:'breachline-web/1',role:'host',room:'test'}); assert.equal((await host.next()).type,'relay-ok');
+    duplicate.send({type:'relay-hello',proto:'breachline-web/1',role:'host',room:'test'}); assert.equal((await duplicate.next()).type,'relay-error');
+    guest.send({type:'relay-hello',proto:'breachline-web/1',role:'guest',room:'test'}); const g=await guest.next(); assert.equal(g.role,'guest');const join=await host.next(); assert.equal(join.peer,g.id); assert.equal(join.account,'Netplayer');
+    guest.send({type:'input',keys:{KeyW:true}});assert.deepEqual(await host.next(),{from:g.id,msg:{type:'input',keys:{KeyW:true}}});
+    host.send({to:'all',msg:{type:'state',payload:'x'.repeat(1000)}});assert.equal((await guest.next()).payload.length,1000);
+    host.close();assert.equal((await guest.next()).type,'relay-error');
+  }finally{host.close();guest.close();duplicate.close();}
+});

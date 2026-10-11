@@ -1,0 +1,60 @@
+// Optional end-to-end check: PUPPETEER_MODULE=/path/to/puppeteer-core node test/browser.cjs
+const assert = require('node:assert/strict');
+const puppeteer = require(process.env.PUPPETEER_MODULE || 'puppeteer-core');
+const url = process.env.BREACHLINE_URL || 'http://127.0.0.1:8088';
+(async () => {
+  const browser = await puppeteer.launch({ browser: 'firefox', executablePath: process.env.FIREFOX || '/usr/bin/firefox', headless: false, env: { ...process.env, MOZ_DISABLE_CONTENT_SANDBOX: '1' } });
+  const errors = [];
+  const open = async (context = browser) => { const p = await context.newPage(); await p.setViewport({width:1280,height:900}); p.on('pageerror', e => { if (!e.message.startsWith('downloadable font:')) errors.push(e.message); }); await p.goto(url); await p.waitForFunction(() => window.__game?.ENTS.length === 10, {timeout:60000}); return p; };
+  try {
+    const host = await open();
+    assert.equal(await host.$eval('#deploy', e => e.textContent), 'Начать игру');
+    await host.select('#language', 'en'); await host.waitForFunction(()=>document.querySelector('#deploy').textContent === 'Deploy');
+    await host.select('#language', 'ru');
+    await host.evaluate(() => { __game.startGame(); const s = __game.snapshot(); s.game.score.T=3; s.entities[s.player].money=4321; __game.applySnapshot(s,s.player,true); return __game.saveMatch(); });
+    await host.reload(); await host.waitForFunction(()=>window.__game?.ENTS.length===10 && !document.querySelector('#continue').disabled,{timeout:60000});
+    await host.click('#continue');
+    assert.deepEqual(await host.evaluate(()=>[__game.GAME.score.T,__game.PLAYER.money]),[3,4321]);
+    console.log('PASS: Russian/English and persisted match restore');
+    await host.evaluate(()=>{__game.toMenu(); __game.connectLAN('host');}); await host.waitForFunction(()=>__game.NET.role==='host');
+    const guestContext = await browser.createBrowserContext();
+    const guest = await open(guestContext);
+    await guest.evaluate(()=>__game.connectLAN('guest')); await guest.waitForFunction(()=>__game.NET.role==='guest'&&!__game.GAME.attract,{timeout:15000});
+    await guest.bringToFront(); await guest.click('#resume'); await guest.waitForFunction(()=>document.querySelector('#pause').hidden);
+    await host.evaluate(()=>{ for(const e of __game.ENTS)e.bot=false; __game.GAME.phase='freeze'; __game.GAME.phaseT=120; const e=__game.ENTS.find(e=>e.remote); e.money=800;e.armor=0;e.hp=100;e.alive=true;e.cur=2;e.slots[2].mag=e.slots[2].d.mag;e.slots[2].res=90; });
+    await guest.waitForFunction(()=>__game.PLAYER.money===800&&__game.PLAYER.armor===0&&__game.PLAYER.alive);
+    await guest.keyboard.press('b'); await guest.waitForFunction(()=>!document.querySelector('#buy').hidden);
+    await guest.evaluate(()=>[...document.querySelectorAll('.bitem')].find(b=>b.querySelector('.bn').textContent==='Бронежилет').click());
+    await guest.waitForFunction(()=>__game.PLAYER.armor===100); assert.equal(await guest.evaluate(()=>__game.PLAYER.money),150);
+    await guest.keyboard.press('b'); await guest.waitForFunction(()=>document.querySelector('#buy').hidden);
+    await host.evaluate(()=>{__game.GAME.phase='live';}); await guest.waitForFunction(()=>__game.GAME.phase==='live');
+    const before=await guest.evaluate(()=>[__game.PLAYER.x,__game.PLAYER.z]);
+    await guest.keyboard.down('w'); await new Promise(r=>setTimeout(r,1000)); await guest.keyboard.up('w');
+    const after=await guest.evaluate(()=>[__game.PLAYER.x,__game.PLAYER.z]); assert.ok(Math.hypot(after[0]-before[0],after[1]-before[1])>.1,'Guest must move on host');
+    await guest.evaluate(()=>{__game.PLAYER.pitch=1.3;__game.MOUSE.l=true;__game.MOUSE.lPress=true;});
+    await guest.waitForFunction(()=>__game.PLAYER.slots[2].mag<__game.PLAYER.slots[2].d.mag); await guest.evaluate(()=>__game.MOUSE.l=false);
+    await guest.keyboard.press('r'); await guest.waitForFunction(()=>__game.PLAYER.slots[2].mag===__game.PLAYER.slots[2].d.mag,{timeout:10000});
+    console.log('PASS: LAN movement, purchases, firing and reloading');
+    await host.evaluate(()=>{const e=__game.ENTS.find(e=>e.remote);e.team='CT';e.kit=true;__game.GAME.bomb={state:'planted',carrier:null,defuser:null,x:e.x,y:e.y,z:e.z,timer:30,beepT:1,site:'A'};});
+    await guest.keyboard.down('e'); await guest.waitForFunction(()=>__game.GAME.bomb.state==='defused',{timeout:12000});await guest.keyboard.up('e');
+    assert.equal(await host.evaluate(()=>__game.GAME.bomb.state),'defused');
+    await host.evaluate(()=>{__game.GAME.score.CT=__game.GAME.target;__game.GAME.over='CT';__game.GAME.phaseT=0;});
+    await guest.waitForFunction(()=>!document.querySelector('#over').hidden,{timeout:10000});
+    await host.evaluate(()=>__game.startGame());
+    await guest.waitForFunction(()=>document.querySelector('#over').hidden&&__game.GAME.round===1&&__game.GAME.phase==='freeze');
+    console.log('PASS: shared bomb defuse, match end and rematch');
+    const id=await guest.evaluate(()=>__game.PLAYER.id);
+    assert.equal(await guest.evaluate(()=>window.__err),undefined);assert.equal(await host.evaluate(()=>window.__err),undefined);
+    await guest.evaluate(()=>__game.toMenu());await host.waitForFunction(()=>__game.NET.peers.size===0);
+    assert.equal(await guest.evaluate(()=>localStorage.getItem('bl_checkpoint_guest')),null);
+    assert.equal(await host.evaluate(id=>__game.ENTS[id].bot,id),true);
+    await guest.evaluate(()=>__game.connectLAN('guest')); await guest.waitForFunction(()=>__game.NET.role==='guest'&&!__game.GAME.attract);
+    await host.evaluate(()=>__game.disconnectLAN()); await guest.waitForFunction(()=>__game.GAME.attract&&__game.NET.role===null);
+    assert.equal(await guest.evaluate(()=>localStorage.getItem('bl_checkpoint_guest')),null);
+    assert.deepEqual(errors,[]);
+    console.log('PASS: guest disconnect restores bot; no browser errors');
+  } catch (error) {
+    for (const page of await browser.pages()) console.error('Browser state:', await page.evaluate(()=>({role:window.__game?.NET.role,phase:window.__game?.GAME.phase,error:window.__err,player:window.__game?.PLAYER && {alive:__game.PLAYER.alive,cur:__game.PLAYER.cur,reload:__game.PLAYER.reloadT,weapon:__game.PLAYER.slots[2]},paused:document.querySelector('#pause')?.hidden})).catch(()=>null));
+    throw error;
+  } finally { await browser.close(); }
+})().catch(e=>{console.error(e);process.exitCode=1;});
