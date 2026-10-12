@@ -62,7 +62,7 @@
     ['host','ведущий'],['ready','готов'],['waiting','ждём'],['Everyone is here — starting in %d','Все на месте — старт через %d'],
     ['Players: %d of %d. You can start now: bots take the empty places.','Игроков: %d из %d. Можно начать сейчас: свободные места займут боты.'],['Players: %d of %d','Игроков: %d из %d'],
     ['Match','Матч'],['The match has started. Press Resume.','Матч начался. Нажмите «Продолжить».'],['You are in a network match. Press Resume.','Вы в сетевом матче. Нажмите «Продолжить».'],
-    ['This server has no HTTPS, so this page cannot reach it. Open the game on that server instead: ','У этого сервера нет HTTPS, поэтому эта страница не может к нему подключиться. Откройте игру прямо на нём: '],
+    ['This server has no HTTPS, so this page cannot reach it. Open the game on that server instead: ','Браузер не пускает страницу, открытую по https, к серверу без HTTPS. Откройте игру прямо на этом сервере: '],
     ['The server does not answer. Check the address and that the server is running.','Сервер не отвечает. Проверьте адрес и что сервер запущен.'],
     ['The server did not understand the game','Сервер не понял игру'],['Different game versions. Reload the page','Разные версии игры. Обновите страницу'],['Enter a nickname','Введите ник'],
     ['This nickname belongs to an account — sign in to use it','Этот ник принадлежит аккаунту — войдите в него'],['The server is full, try later','Сервер переполнен, попробуйте позже'],

@@ -3031,23 +3031,35 @@ function serverBase(address) {
 }
 // An https page may not open plain ws:// or http:// connections; such servers are opened directly instead.
 const mixedBlocked = base => location.protocol === 'https:' && base.startsWith('http:');
+// "IP:port" says nothing about https: try both, the page's own scheme first.
+function serverCandidates(address) {
+  const a = String(address).trim().replace(/\/+$/, '');
+  if (/^https?:\/\//i.test(a)) return [a];
+  return location.protocol === 'https:' ? ['https://' + a, 'http://' + a] : ['http://' + a, 'https://' + a];
+}
 async function pingServer(s) {
-  const base = serverBase(s.address), key = base;
+  const key = s.address;
   MP.status[key] = { wait: true }; renderServers();
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000), t0 = performance.now();
-  try {
-    if (mixedBlocked(base)) throw Error('mixed');
-    const info = await (await fetch(base + '/api/ping', { signal: ctl.signal, cache: 'no-store' })).json();
-    MP.status[key] = { ok: true, ms: Math.round(performance.now() - t0), ...info };
-  } catch (e) { MP.status[key] = { ok: false, mixed: e.message === 'mixed' }; }
-  clearTimeout(timer);
+  let result = null, blocked = null;
+  for (const base of serverCandidates(s.address)) {
+    if (mixedBlocked(base)) { blocked ||= base; continue; }
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000), t0 = performance.now();
+    try {
+      const info = await (await fetch(base + '/api/ping', { signal: ctl.signal, cache: 'no-store' })).json();
+      result = { ok: true, base, ms: Math.round(performance.now() - t0), ...info };
+    } catch {}
+    clearTimeout(timer);
+    if (result) break;
+  }
+  // Nothing answered over https, and plain http is off limits for an https page: say so and link the server itself.
+  MP.status[key] = result || { ok: false, mixed: !!blocked, base: blocked || serverCandidates(s.address)[0] };
   renderServers();
   if (MP.servers[MP.sel] === s) renderServer();
 }
 function renderServers() {
   const list = $('#srvList'); list.innerHTML = '';
   MP.servers.forEach((s, i) => {
-    const st = MP.status[serverBase(s.address)] || { wait: true };
+    const st = MP.status[s.address] || { wait: true };
     const b = document.createElement('button'); b.type = 'button'; b.className = 'srv' + (i === MP.sel ? ' on' : '');
     const label = st.wait ? '…' : st.ok ? `${st.ms} ms · ${st.players}` : st.mixed ? 'http' : '✕';
     b.innerHTML = `<b></b><span class="st ${st.wait ? 'wait' : st.ok ? 'ok' : 'bad'}">${label}</span><small></small>` + (s.official ? '' : '<span class="edit" role="button">✎</span>');
@@ -3060,7 +3072,7 @@ function renderServers() {
 }
 async function renderServer() {
   const s = MP.servers[MP.sel]; if (!s) { $('#srvName').textContent = ''; $('#srvAddr').textContent = ''; $('#srvInfo').innerHTML = ''; return; }
-  const base = serverBase(s.address), st = MP.status[base] || { wait: true };
+  const st = MP.status[s.address] || { wait: true }, base = st.base || serverBase(s.address);
   $('#srvName').textContent = s.official ? (st.name || s.name) : s.name;
   $('#srvAddr').textContent = base.replace(/^https?:\/\//, '');
   $('#srvState').textContent = st.wait ? '…' : st.ok ? `${tr('online')} · ${st.ms} ${tr('ms')}` : tr('offline');
@@ -3107,7 +3119,7 @@ $('#srvRefresh').onclick = () => { for (const s of MP.servers) pingServer(s); };
 $('#mpOpen').onclick = openMP;
 $('#mpClose').onclick = closeMP;
 $('#mpNick').oninput = () => { try { localStorage.setItem('bl_nick', cleanName($('#mpNick').value)); } catch {} };
-$('#srvJoin').onclick = () => { const s = MP.servers[MP.sel]; if (s) connectServer(serverBase(s.address)); };
+$('#srvJoin').onclick = () => { const s = MP.servers[MP.sel]; if (s) connectServer(MP.status[s.address]?.base || serverBase(s.address)); };
 
 // ---- the server lobby: everyone waits here; an admin picks the match settings and starts it
 let lobbyBuilt = false;
