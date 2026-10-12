@@ -1,9 +1,25 @@
+# Render Blueprint: the game site, accounts API and multiplayer relay in one Node service,
+# with accounts and saves in a Render PostgreSQL database (created by this blueprint).
+# To keep data in another database (e.g. Neon), replace DATABASE_URL in the service settings.
 services:
   - type: web
     name: breachline
     runtime: node
-    buildCommand: "npm install --omit=dev"
-    startCommand: "npm start"
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/ping
     envVars:
       - key: NODE_ENV
         value: production
+      - key: BREACHLINE_NAME
+        value: Breachline
+      - key: DATABASE_URL
+        fromDatabase:
+          name: breachline-db
+          property: connectionString
+databases:
+  - name: breachline-db
+    plan: free
+    databaseName: breachline
+    user: breachline

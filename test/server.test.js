@@ -8,6 +8,16 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 let server, dir, base, port;
+// With DATABASE_URL the server keeps everything in PostgreSQL; read it back the same way.
+const PG = !!process.env.DATABASE_URL;
+async function stored(key) {
+  if (!PG) {
+    const file = key === 'accounts' ? 'accounts.json' : key.replace(/^save\//, 'saves/').replace(/$/, key.startsWith('save/') ? '.json' : '');
+    return readFile(path.join(dir, file)).catch(() => null);
+  }
+  const { Client } = require('pg'); const c = new Client({ connectionString: process.env.DATABASE_URL }); await c.connect();
+  try { const r = await c.query('SELECT value FROM breachline_kv WHERE key = $1', [key]); return r.rows[0]?.value || null; } finally { await c.end(); }
+}
 async function startServer() {
   server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir }, stdio: ['ignore','pipe','pipe'] });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(Error('Server exited: '+code))); });
@@ -15,6 +25,7 @@ async function startServer() {
 async function stopServer() { const s = server; server = null; if (s && s.exitCode === null) await new Promise(resolve => { s.once('exit', resolve); s.kill(); }); }
 before(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), 'breachline-test-'));
+  if (PG) { const { Client } = require('pg'); const c = new Client({ connectionString: process.env.DATABASE_URL }); await c.connect(); await c.query('DROP TABLE IF EXISTS breachline_kv'); await c.end(); }
   // A v1 account (name "Ветеран", password "veteran-pass") must survive the migration.
   const salt = 'ab'.repeat(16), hash = crypto.scryptSync('veteran-pass', salt, 64).toString('hex');
   const legacyId = crypto.createHash('sha256').update('ветеран').digest('hex');
@@ -54,7 +65,7 @@ test('accounts: register, log in, isolate saves, persist sessions across restart
   const b = await api('register','POST',{name:'Another',password:'different-pass'});
   assert.equal((await api('save','GET',null,b.cookie)).data.save,null);
 
-  const db = JSON.parse(await readFile(path.join(dir,'accounts.json'),'utf8'));
+  const db = JSON.parse((await stored('accounts')).toString('utf8'));
   const user = db.users[a.data.user.id];
   assert.equal(user.password,undefined); assert.equal(user.hash.length,128);
   assert.ok(!JSON.stringify(db).includes(a.cookie.split('=')[1]), 'raw session tokens must not be stored');
@@ -88,7 +99,7 @@ test('account deletion removes the account, sessions and save', async () => {
   assert.equal((await api('account','DELETE',{ password:'leaving-pass-1' },r.cookie)).status,200);
   assert.equal((await api('me','GET',null,r.cookie)).data.user,null);
   assert.equal((await api('login','POST',{ name:'Leaver', password:'leaving-pass-1' })).status,401);
-  assert.ok(!(await readdir(path.join(dir,'saves'))).includes(r.data.user.id + '.json'));
+  assert.equal(await stored('save/' + r.data.user.id), null);
   assert.equal((await api('register','POST',{ name:'Leaver', password:'leaving-pass-2' })).status,201);
 });
 test('profile: emblem avatar, uploaded picture and match stats', async () => {
@@ -112,7 +123,7 @@ test('profile: emblem avatar, uploaded picture and match stats', async () => {
   assert.equal((await api('stats','POST',{ won:true, kills:-1, deaths:0 })).status,401);
   assert.deepEqual((await api('me','GET',null,r.cookie)).data.user.stats,stats.data.user.stats);
 });
-test('v1 accounts and saves are migrated', async () => {
+test('v1 accounts and saves are migrated', { skip: PG && 'file storage only' }, async () => {
   const r = await api('login','POST',{ name:'ветеран', password:'veteran-pass' });
   assert.equal(r.status,200); assert.equal(r.data.user.name,'Ветеран');
   assert.equal((await api('save','GET',null,r.cookie)).data.save.date,1);
@@ -125,7 +136,7 @@ test('repeated wrong passwords lock that name for a while', async () => {
 });
 test('server exposes only game files and refuses cross-origin account changes',async()=>{
   for (const file of ['server.js','accounts.js','package.json','data/test.json','accounts.json','.git/config','%ZZ']) assert.equal((await fetch(base+'/'+file)).status,404);
-  assert.equal((await fetch(base+'/game.js')).status,200);
+  for (const file of ['game.js','maps.js','i18n.js']) assert.equal((await fetch(base+'/'+file)).status,200);
   const r = await fetch(base+'/api/register',{method:'POST',headers:{Origin:'http://unrelated.example','content-type':'application/json'},body:'{}'}); assert.equal(r.status,403);
 });
 async function socket(cookie) {
@@ -145,15 +156,36 @@ async function socket(cookie) {
   raw.write(`GET /ws HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${base}\r\n${cookie ? 'Cookie: ' + cookie + '\r\n' : ''}Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\n\r\n`);
   return { close:()=>raw.destroy(), send(m) { const p=Buffer.from(JSON.stringify(m)), mask=crypto.randomBytes(4);let h;if(p.length<126)h=Buffer.from([129,128|p.length]);else {h=Buffer.alloc(4);h[0]=129;h[1]=254;h.writeUInt16BE(p.length,2);} for(let i=0;i<p.length;i++)p[i]^=mask[i%4];raw.write(Buffer.concat([h,mask,p])); }, next(){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('WebSocket timeout')),3000);const done=m=>{clearTimeout(timer);resolve(m);};if(messages.length)done(messages.shift());else waiters.push(done);});} };
 }
-test('LAN room lifecycle, state relay and input relay',async()=>{
+test('multiplayer: lobby, invite list, reserved names, start and relay', async () => {
   const player = await api('register','POST',{ name:'Netplayer', password:'net-pass-123' });
-  const host=await socket(), guest=await socket(player.cookie), duplicate=await socket();
+  const host = await socket(), guest = await socket(player.cookie), stranger = await socket(), impostor = await socket(), crowd = [];
+  const next = async (s, type) => { for (;;) { const m = await s.next(); if (!type || m.type === type) return m; } };
   try {
-    host.send({type:'relay-hello',proto:'breachline-web/1',role:'host',room:'test'}); assert.equal((await host.next()).type,'relay-ok');
-    duplicate.send({type:'relay-hello',proto:'breachline-web/1',role:'host',room:'test'}); assert.equal((await duplicate.next()).type,'relay-error');
-    guest.send({type:'relay-hello',proto:'breachline-web/1',role:'guest',room:'test'}); const g=await guest.next(); assert.equal(g.role,'guest');const join=await host.next(); assert.equal(join.peer,g.id); assert.equal(join.account,'Netplayer');
-    guest.send({type:'input',keys:{KeyW:true}});assert.deepEqual(await host.next(),{from:g.id,msg:{type:'input',keys:{KeyW:true}}});
-    host.send({to:'all',msg:{type:'state',payload:'x'.repeat(1000)}});assert.equal((await guest.next()).payload.length,1000);
-    host.close();assert.equal((await guest.next()).type,'relay-error');
-  }finally{host.close();guest.close();duplicate.close();}
+    host.send({ type:'relay-hello', proto:'breachline-web/2', role:'host', name:'Hoster', match:{ name:'Evening game', mode:'tdm', map:'harbor', max:3, allowed:['Netplayer','Friend'] } });
+    const ok = await next(host, 'relay-ok'); assert.match(ok.code, /^[A-Z2-9]{5}$/);
+    const lobby = await next(host, 'lobby'); assert.equal(lobby.room.state, 'lobby'); assert.equal(lobby.room.max, 3);
+    const listed = await (await fetch(base + '/api/rooms')).json();
+    assert.ok(listed.rooms.some(r => r.code === ok.code && r.name === 'Evening game' && r.mode === 'tdm'));
+    const ping = await fetch(base + '/api/ping'); assert.equal(ping.headers.get('access-control-allow-origin'), '*');
+    assert.equal((await ping.json()).matches >= 1, true);
+    stranger.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Stranger' });
+    assert.equal((await next(stranger, 'relay-error')).reason, 'not_invited');
+    impostor.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Netplayer' });
+    assert.equal((await next(impostor, 'relay-error')).reason, 'name_reserved');
+    guest.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code.toLowerCase(), name:'whatever' });
+    const g = await next(guest, 'relay-ok'); assert.equal(g.name, 'Netplayer');
+    const join = await next(host, 'peer-join'); assert.equal(join.peer, g.id); assert.equal(join.account, 'Netplayer');
+    assert.equal((await next(host, 'lobby')).room.players.length, 2);
+    for (let i = 0; i < 2; i++) { const c = await socket(); crowd.push(c); c.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Friend' }); }
+    await next(crowd[0], 'relay-ok');
+    assert.equal((await next(crowd[1], 'relay-error')).reason, 'room_full');
+    host.send({ type:'start' });
+    let state; do state = (await next(guest, 'lobby')).room.state; while (state !== 'playing');
+    guest.send({ type:'input', keys:{ KeyW:true } });
+    let relayed; do relayed = await host.next(); while (!relayed.from);
+    assert.deepEqual(relayed, { from:g.id, msg:{ type:'input', keys:{ KeyW:true } } });
+    host.send({ to:'all', msg:{ type:'state', payload:'x'.repeat(1000) } });
+    assert.equal((await next(guest, 'state')).payload.length, 1000);
+    host.close(); assert.equal((await next(guest, 'relay-error')).reason, 'host_left');
+  } finally { for (const s of [host, guest, stranger, impostor, ...crowd]) s.close(); }
 });

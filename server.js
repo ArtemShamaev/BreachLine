@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-/* Breachline WEB server: serves the game over HTTP and relays LAN multiplayer messages over
- * WebSocket between the host's browser and up to nine guests. No npm dependencies.
+/* Breachline server: serves the game, the accounts API and the multiplayer relay.
  *
  *   node server.js [port]        (default 8088; also BREACHLINE_PORT or PORT on hosting)
- * Several worlds can be open at once: each host opens a room, guests join it by its code.
+ *
+ * Multiplayer: a host's browser opens a match (a lobby with a code); guests join it, the server
+ * relays messages between them and the host simulates the game. Any number of matches at once.
+ * Accounts live in files or PostgreSQL (see storage.js). The relay needs no npm packages.
  */
 'use strict';
 const http = require('http');
@@ -16,7 +18,9 @@ const ROOT = __dirname;
 const PORT = Number(process.argv[2] || process.env.BREACHLINE_PORT || process.env.PORT || 8088);
 // On a cloud host the container addresses mean nothing to players.
 const HOSTED = !!process.env.PORT && !process.argv[2];
-const PROTOCOL = 'breachline-web/1', MAX_PLAYERS = 10, MAX_FRAME = 2 * 1024 * 1024;
+const PROTOCOL = 'breachline-web/2', MAX_PLAYERS = 10, MAX_FRAME = 2 * 1024 * 1024;
+const SERVER_NAME = String(process.env.BREACHLINE_NAME || os.hostname()).slice(0, 40);
+const VERSION = require('./package.json').version;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
   '.png': 'image/png', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8', '.py': 'text/plain; charset=utf-8', '.txt': 'text/plain' };
 
@@ -31,18 +35,24 @@ function lanAddresses() {
 }
 
 // ---------------------------------------------------------------- static files
-const { handleAPI, userFromRequest, ready } = require('./accounts');
+const { handleAPI, userFromRequest, nameRegistered, ready, storageInfo } = require('./accounts');
+// Public, read-only answers that other sites may ask for: the game's server list pings any server.
+function publicJSON(res, body) {
+  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
+  res.end(JSON.stringify(body));
+}
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname.startsWith('/api/')) {
-      if (url.pathname === '/api/lan') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ addresses: lanAddresses(), port: PORT }));
+      if (req.method === 'GET' && url.pathname === '/api/ping') {
+        let players = 0; for (const r of rooms.values()) players += 1 + r.guests.size;
+        return publicJSON(res, { name: SERVER_NAME, version: VERSION, proto: PROTOCOL, players, matches: rooms.size, addresses: lanAddresses(), port: PORT });
       }
+      if (req.method === 'GET' && url.pathname === '/api/rooms') return publicJSON(res, { rooms: [...rooms.values()].map(roomInfo) });
       return await handleAPI(req, res, url);
     }
-    const allowed = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js', '/i18n.js': 'i18n.js' };
+    const allowed = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js', '/maps.js': 'maps.js', '/i18n.js': 'i18n.js' };
     const file = allowed[url.pathname];
     if (!file) { res.writeHead(404); return res.end('Not found'); }
     fs.readFile(path.join(ROOT, file), (err, data) => {
@@ -106,56 +116,89 @@ class Socket {
   closed() { if (!this.open) return; this.open = false; this.onclose(); }
 }
 
-// ---------------------------------------------------------------- relay (rooms)
-const rooms = new Map(); // code → { host, guests: Map, nextId }
+// ---------------------------------------------------------------- relay (matches)
+// code → { code, name, host, hostName, mode, map, target, max, allowed, state, guests: Map(id → {socket, name}), nextId, created }
+const rooms = new Map();
 const MAX_ROOMS = 200;
-function log(text) { console.log('[LAN] ' + text); }
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to misread
+function log(text) { console.log('[MP] ' + text); }
+function cleanName(n) { return String(n || '').normalize('NFKC').replace(/[^\p{L}\p{N}_ -]/gu, '').trim().slice(0, 24); }
+function newCode() {
+  for (;;) { let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[crypto.randomInt(CODE_CHARS.length)]; if (!rooms.has(c)) return c; }
+}
+function roomInfo(r) {
+  return { code: r.code, name: r.name, host: r.hostName, mode: r.mode, map: r.map, target: r.target, max: r.max, allowed: r.allowed,
+    state: r.state, players: [{ id: 0, name: r.hostName, host: true }, ...[...r.guests].map(([id, g]) => ({ id, name: g.name }))], created: r.created };
+}
+function broadcastLobby(r) {
+  const msg = { type: 'lobby', room: roomInfo(r) };
+  r.host.send(msg);
+  for (const g of r.guests.values()) g.socket.send(msg);
+}
 server.on('upgrade', (req, raw, head) => {
-  try { if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) { raw.destroy(); return; } }
-  catch { raw.destroy(); return; }
+  // Any site may connect (the game lists other people's servers). Account cookies are SameSite=Strict,
+  // so a cross-site page cannot borrow somebody's account here.
   if (new URL(req.url, 'http://localhost').pathname !== '/ws' || !req.headers['sec-websocket-key']) { raw.destroy(); return; }
   const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   raw.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
   const socket = new Socket(raw), remote = req.headers['x-forwarded-for'] || raw.remoteAddress;
-  // The cookie arrives with the upgrade request, so the host learns which account really joined.
+  // The cookie arrives with the upgrade request, so the server knows which account really connected.
   const account = userFromRequest(req)?.name || null;
-  let role = null, id = -1, room = null, code = '';
-  const reject = reason => { socket.send({ type: 'relay-error', reason }); log('Отказ ' + remote + ': ' + reason); socket.close(); };
+  let role = null, id = -1, room = null, code = '', name = '';
+  const reject = (reason, detail = '') => { socket.send({ type: 'relay-error', reason, detail }); log('Отказ ' + remote + ': ' + reason); socket.close(); };
   socket.onmessage = m => {
     if (!role) {
-      if (!m || m.type !== 'relay-hello') return reject('Ожидалось приветствие');
-      if (m.proto !== PROTOCOL) return reject('Разные версии игры. Обновите страницу у всех игроков');
-      code = typeof m.room === 'string' && /^[A-Za-z0-9]{1,16}$/.test(m.room) ? m.room : 'lan';
-      room = rooms.get(code);
+      if (!m || m.type !== 'relay-hello') return reject('hello_expected');
+      if (m.proto !== PROTOCOL) return reject('version_mismatch');
+      name = account || cleanName(m.name);
+      if (!name) return reject('name_required');
+      // A guest cannot pose as somebody's account: registered names need that account signed in.
+      if (!account && nameRegistered(name)) return reject('name_reserved', name);
       if (m.role === 'host') {
-        if (room) return reject(code === 'lan' ? 'На этом сервере уже открыт другой мир' : 'Комната ' + code + ' занята. Выберите другой код');
-        if (rooms.size >= MAX_ROOMS) return reject('Сервер перегружен, попробуйте позже');
-        room = { host: socket, guests: new Map(), nextId: 1 }; rooms.set(code, room);
+        if (rooms.size >= MAX_ROOMS) return reject('server_full');
+        const o = m.match && typeof m.match === 'object' ? m.match : {};
+        code = typeof m.room === 'string' && /^[A-Za-z0-9]{1,16}$/.test(m.room) ? m.room.toUpperCase() : newCode();
+        if (rooms.has(code)) return reject('code_taken', code);
+        const allowed = Array.isArray(o.allowed) ? [...new Set(o.allowed.map(cleanName).filter(Boolean))].slice(0, 9) : [];
+        room = { code, host: socket, hostName: name, name: cleanName(o.name) || name, mode: String(o.mode || 'bomb').slice(0, 16), map: String(o.map || '').slice(0, 24),
+          target: Number(o.target) || 8, max: Math.max(2, Math.min(MAX_PLAYERS, Number(o.max) || MAX_PLAYERS)), allowed, state: 'lobby', guests: new Map(), nextId: 1, created: Date.now() };
+        rooms.set(code, room);
         role = 'host'; id = 0;
-        socket.send({ type: 'relay-ok', role, addresses: lanAddresses(), port: PORT }); log('Хозяин открыл мир [' + code + ']: ' + remote);
+        socket.send({ type: 'relay-ok', role, code, name, addresses: lanAddresses(), port: PORT }); broadcastLobby(room);
+        log('Матч ' + code + ' создан: ' + name + ' (' + remote + ')');
       } else {
-        if (!room) return reject(code === 'lan' ? 'Мир не открыт для сети. Хозяин должен нажать «Открыть для сети»' : 'Комната ' + code + ' не найдена');
-        if (room.guests.size >= MAX_PLAYERS - 1) return reject('Сервер заполнен (до ' + MAX_PLAYERS + ' игроков)');
-        role = 'guest'; id = room.nextId++; room.guests.set(id, socket);
-        socket.send({ type: 'relay-ok', role, id }); room.host.send({ type: 'peer-join', peer: id, account }); log('Гость ' + id + ' [' + code + ']: ' + remote);
+        code = typeof m.room === 'string' ? m.room.trim().toUpperCase() : '';
+        room = rooms.get(code);
+        if (!room) return reject('room_not_found', code);
+        if (room.guests.size + 1 >= room.max) return reject('room_full');
+        const key = name.toLowerCase();
+        if (room.allowed.length && !room.allowed.some(a => a.toLowerCase() === key)) return reject('not_invited', name);
+        if (room.hostName.toLowerCase() === key || [...room.guests.values()].some(g => g.name.toLowerCase() === key)) return reject('name_in_use', name);
+        role = 'guest'; id = room.nextId++; room.guests.set(id, { socket, name });
+        socket.send({ type: 'relay-ok', role, id, code, name });
+        room.host.send({ type: 'peer-join', peer: id, account, name }); broadcastLobby(room);
+        log('Игрок ' + name + ' зашёл в ' + code + ' (' + remote + ')');
       }
       return;
     }
     if (role === 'guest') { room.host.send({ from: id, msg: m }); return; }
-    // host → guests
+    // host → server: start the match / host → guests: game messages
+    if (m && m.type === 'start') { room.state = 'playing'; broadcastLobby(room); log('Матч ' + code + ' начался'); return; }
+    if (m && m.type === 'lobby-reset') { room.state = 'lobby'; broadcastLobby(room); return; }
     if (!m || !m.msg) return;
-    if (m.to === 'all') { for (const g of room.guests.values()) g.send(m.msg); }
-    else { const g = room.guests.get(m.to); if (g) { g.send(m.msg); if (m.msg.type === 'ERROR') setTimeout(() => g.close(), 2000); } }
+    if (m.to === 'all') { for (const g of room.guests.values()) g.socket.send(m.msg); }
+    else { const g = room.guests.get(m.to); if (g) g.socket.send(m.msg); }
   };
   const helloTimeout = setTimeout(() => { if (!role) socket.close(); }, 10000);
   socket.onclose = () => {
     clearTimeout(helloTimeout);
     if (role === 'host' && rooms.get(code) === room) {
-      rooms.delete(code); log('Хозяин закрыл мир [' + code + ']');
-      for (const g of room.guests.values()) { g.send({ type: 'relay-error', reason: 'Хозяин закрыл сеть' }); g.close(); }
-    } else if (role === 'guest' && room.guests.get(id) === socket) {
-      room.guests.delete(id); if (rooms.get(code) === room) room.host.send({ type: 'peer-leave', peer: id });
-      log('Гость ' + id + ' [' + code + '] отключился');
+      rooms.delete(code); log('Матч ' + code + ' закрыт');
+      for (const g of room.guests.values()) { g.socket.send({ type: 'relay-error', reason: 'host_left' }); g.socket.close(); }
+    } else if (role === 'guest' && room.guests.get(id)?.socket === socket) {
+      room.guests.delete(id);
+      if (rooms.get(code) === room) { room.host.send({ type: 'peer-leave', peer: id }); broadcastLobby(room); }
+      log('Игрок ' + name + ' вышел из ' + code);
     }
   };
   if (head.length) { socket.buffer = head; socket.parse(); }
@@ -166,6 +209,7 @@ server.on('error', e => {
   process.exit(1);
 });
 ready.then(() => server.listen(PORT, '0.0.0.0', () => {
-  console.log('Breachline WEB: http://localhost:' + PORT + '/');
+  console.log('Breachline «' + SERVER_NAME + '»: http://localhost:' + PORT + '/');
+  console.log('  данные: ' + storageInfo());
   for (const a of lanAddresses()) console.log('  в локальной сети: http://' + a + ':' + PORT + '/');
 }), e => { console.error(e.message); process.exit(1); });

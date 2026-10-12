@@ -1,20 +1,22 @@
 'use strict';
-/* Accounts, sessions and per-account match saves.
+/* Accounts, sessions and per-account match saves, kept in storage.js (files or PostgreSQL):
  *
- * data/accounts.json  users and sessions (only SHA-256 of session tokens is stored)
- * data/saves/<id>.json one checkpoint per account
- * data/avatars/<id>    uploaded profile picture (PNG, JPEG or WebP, at most 256 KB)
+ * accounts         users and sessions (only SHA-256 of session tokens is stored)
+ * save/<id>        one checkpoint per account
+ * avatar/<id>      uploaded profile picture (PNG, JPEG or WebP, at most 256 KB)
  * Errors are returned as { error: '<code>' }; the browser turns codes into text.
  */
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
+const storage = require('./storage');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const scrypt = promisify(crypto.scrypt);
 
 const DIR = process.env.BREACHLINE_DATA || path.join(__dirname, 'data');
-const DB_FILE = path.join(DIR, 'accounts.json'), SAVES = path.join(DIR, 'saves'), AVATARS = path.join(DIR, 'avatars');
+const DB_FILE = path.join(DIR, 'accounts.json');
+const store = storage.open(DIR);
 const SESSION_TTL = 30 * 86400000, MAX_SESSIONS = 20, COOKIE = 'bl_sid';
 const MAX_BODY = 1024 * 1024;
 // Render and similar hosts put every request behind a proxy; without this all players share one IP limit.
@@ -27,17 +29,12 @@ let db = { version: 2, users: {}, sessions: {} };
 const byName = new Map(); // name key → user id
 let writing = Promise.resolve(), dirty = false;
 
-async function atomicWrite(file, text) {
-  const temp = file + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
-  await fs.writeFile(temp, text, { mode: 0o600 });
-  await fs.rename(temp, file);
-}
 function persist() {
   dirty = true;
   writing = writing.then(async () => {
     if (!dirty) return;
     dirty = false;
-    await atomicWrite(DB_FILE, JSON.stringify(db));
+    await store.put('accounts', JSON.stringify(db));
   }).catch(e => { dirty = true; console.error('[accounts] не удалось записать базу: ' + e.message); throw e; });
   return writing;
 }
@@ -57,7 +54,7 @@ async function migrateLegacy() {
         db.users[user.id] = user; byName.set(key, user.id);
         // v1 wrote the whole request body, { save }, to disk.
         const save = await fs.readFile(path.join(DIR, file.replace(/\.json$/, '.save.json')), 'utf8').catch(e => { if (e.code !== 'ENOENT') throw e; });
-        if (save) await atomicWrite(path.join(SAVES, user.id + '.json'), JSON.stringify(JSON.parse(save).save ?? null));
+        if (save) await store.put('save/' + user.id, JSON.stringify(JSON.parse(save).save ?? null));
       }
     } catch (e) { console.error('[accounts] пропущен старый аккаунт ' + file + ': ' + e.message); }
   }
@@ -66,19 +63,28 @@ async function migrateLegacy() {
   console.log('[accounts] перенесено старых аккаунтов: ' + legacy.length);
 }
 const ready = (async () => {
-  await fs.mkdir(SAVES, { recursive: true, mode: 0o700 });
-  await fs.mkdir(AVATARS, { recursive: true, mode: 0o700 });
-  try { db = JSON.parse(await fs.readFile(DB_FILE, 'utf8')); }
-  catch (e) { if (e.code !== 'ENOENT') throw Error('База аккаунтов повреждена: ' + DB_FILE + ' (' + e.message + ')'); }
+  await store.init();
+  const raw = await store.get('accounts');
+  if (raw) {
+    try { db = JSON.parse(raw.toString('utf8')); }
+    catch (e) { throw Error('База аккаунтов повреждена (' + store.kind + '): ' + e.message); }
+  }
   db.users ||= {}; db.sessions ||= {};
   for (const user of Object.values(db.users)) byName.set(user.key, user.id);
-  await migrateLegacy();
+  if (store.kind === 'files') await migrateLegacy();
 })();
 // Do not lose the last write on Ctrl+C or a hosting restart.
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
-  if (dirty) try { fsSync.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch {}
-  process.exit(0);
+  if (!dirty) process.exit(0);
+  if (store.kind === 'files') {
+    try { fsSync.writeFileSync(DB_FILE, JSON.stringify(db), { mode: 0o600 }); } catch {}
+    process.exit(0);
+  }
+  setTimeout(() => process.exit(0), 4000).unref();
+  persist().catch(() => {}).finally(() => process.exit(0));
 });
+/** True when an account already uses this name: guests may not take it in multiplayer. */
+function nameRegistered(name) { return byName.has(nameKey(name)); }
 
 // ---------------------------------------------------------------- names, passwords, sessions
 function nameKey(name) { return String(name).normalize('NFKC').toLowerCase(); }
@@ -158,8 +164,6 @@ async function readBody(req) {
 }
 function requireUser(user) { if (!user) throw new ApiError(401, 'unauthorized'); return user; }
 function validSave(save) { return !!save && save.version === 1 && Number.isFinite(save.date) && Array.isArray(save.entities) && save.entities.length === 10; }
-const saveFile = id => path.join(SAVES, id + '.json');
-const avatarFile = id => path.join(AVATARS, id);
 
 const routes = {
   'GET /api/me': (req, res, user) => reply(res, 200, { user: publicUser(user) }),
@@ -224,8 +228,8 @@ const routes = {
     delete db.users[user.id]; byName.delete(user.key);
     for (const [key, s] of Object.entries(db.sessions)) if (s.user === user.id) delete db.sessions[key];
     await persist();
-    await fs.rm(saveFile(user.id), { force: true });
-    await fs.rm(avatarFile(user.id), { force: true });
+    await store.del('save/' + user.id);
+    await store.del('avatar/' + user.id);
     res.setHeader('Set-Cookie', cookie(req, '', 0));
     reply(res, 200, { ok: true });
   },
@@ -237,7 +241,7 @@ const routes = {
     if (!avatar || !Number.isInteger(avatar.icon) || !Number.isInteger(avatar.color) || avatar.icon < 0 || avatar.icon >= AVATAR_ICONS || avatar.color < 0 || avatar.color >= AVATAR_COLORS)
       throw new ApiError(400, 'bad_avatar');
     db.users[user.id].avatar = { icon: avatar.icon, color: avatar.color };
-    await persist(); await fs.rm(avatarFile(user.id), { force: true });
+    await persist(); await store.del('avatar/' + user.id);
     reply(res, 200, { user: publicUser(db.users[user.id]) });
   },
 
@@ -249,7 +253,7 @@ const routes = {
     if (!bytes || bytes.length > MAX_AVATAR) throw new ApiError(400, 'bad_image');
     // Check the file signature, not just the label, before serving it back as an image.
     if (!IMAGE_TYPES[match[1]].every((b, i) => bytes[i] === b) || match[1] === 'webp' && bytes.toString('latin1', 8, 12) !== 'WEBP') throw new ApiError(400, 'bad_image');
-    await atomicWrite(avatarFile(user.id), bytes);
+    await store.put('avatar/' + user.id, bytes);
     const avatar = { ...(db.users[user.id].avatar || randomAvatar()), image: match[1], v: Date.now() };
     db.users[user.id].avatar = avatar; await persist();
     reply(res, 200, { user: publicUser(db.users[user.id]) });
@@ -269,28 +273,28 @@ const routes = {
 
   async 'GET /api/save'(req, res, user) {
     requireUser(user);
-    try { reply(res, 200, { save: JSON.parse(await fs.readFile(saveFile(user.id), 'utf8')) }); }
-    catch (e) { if (e.code !== 'ENOENT') throw e; reply(res, 200, { save: null }); }
+    const raw = await store.get('save/' + user.id);
+    reply(res, 200, { save: raw ? JSON.parse(raw.toString('utf8')) : null });
   },
 
   async 'PUT /api/save'(req, res, user) {
     requireUser(user);
     const { save } = await readBody(req);
     if (!validSave(save)) throw new ApiError(400, 'bad_save');
-    await atomicWrite(saveFile(user.id), JSON.stringify(save));
+    await store.put('save/' + user.id, JSON.stringify(save));
     reply(res, 200, { ok: true });
   },
 
   async 'DELETE /api/save'(req, res, user) {
     requireUser(user);
-    await fs.rm(saveFile(user.id), { force: true });
+    await store.del('save/' + user.id);
     reply(res, 200, { ok: true });
   },
 };
 
 async function sendAvatar(res, id) {
   const type = db.users[id]?.avatar?.image;
-  const bytes = type && await fs.readFile(avatarFile(id)).catch(() => null);
+  const bytes = type && await store.get('avatar/' + id).catch(() => null);
   if (!bytes) throw new ApiError(404, 'not_found');
   // Pictures are only ever shown as <img>; the CSP keeps a crafted file from doing anything else.
   res.writeHead(200, { 'content-type': 'image/' + type, 'cache-control': 'private, max-age=31536000, immutable',
@@ -316,4 +320,4 @@ async function handleAPI(req, res, url) {
   }
 }
 
-module.exports = { handleAPI, userFromRequest, ready };
+module.exports = { handleAPI, userFromRequest, nameRegistered, ready, storageInfo: () => (store.kind === 'files' ? 'файлы в ' + DIR : 'PostgreSQL') + ', аккаунтов: ' + Object.keys(db.users).length };

@@ -24,14 +24,52 @@
     ['Player','Игрок'],['Pistols','Пистолеты'],['Rifles','Винтовки'],['SMG','Пистолеты-пулемёты'],['Gear','Снаряжение'],['Grenades','Гранаты'],['OWNED','КУПЛЕНО'],
     ['Knife','Нож'],['P9 Sidearm','Пистолет P9'],['M5 Carbine','Карабин M5'],['HE Grenade','Осколочная граната'],['Smoke Grenade','Дымовая граната'],['Kevlar Vest','Бронежилет'],['Kevlar + Helmet','Бронежилет + шлем'],['Defuse Kit','Набор сапёра'],
     ['Absorbs body damage','Защищает корпус'],['Vest + head protection','Защищает корпус и голову'],['Defuse in 5s instead of 10s','Обезвреживание за 5 с вместо 10 с'],['Frag, ~100 dmg at center','Осколочная, ~100 урона в центре'],['18s vision block','Дым на 18 секунд'],
+    ['Mode','Режим'],['Bomb defusal','Закладка бомбы'],['Elimination','Ликвидация'],['Team deathmatch','Командный бой'],['Arms race','Гонка вооружений'],
+    ['Plant or defuse the bomb. Buy between rounds.','Заложите или обезвредьте бомбу. Покупки между раундами.'],
+    ['Rounds without a bomb: the last team standing wins.','Раунды без бомбы: побеждает команда, оставшаяся в живых.'],
+    ['Respawn after 3 s, pick any gun, first team to the kill limit wins.','Возрождение через 3 с, любое оружие, побеждает команда, первой набравшая лимит убийств.'],
+    ['Every kill swaps your gun for the next one. Finish with a knife kill.','Каждое убийство меняет оружие на следующее. Финал — убийство ножом.'],
+    ['40 kills','40 убийств'],['75 kills','75 убийств'],['Short · 6 guns','Коротко · 6 стволов'],['Full · 12 guns','Полностью · 12 стволов'],
+    ['Arctic research outpost. Radar yard at A, hangar at B, a frozen courtyard between.','Полярная станция. Двор с радаром на A, ангар на B, замёрзший двор между ними.'],
+    ['Downtown after dark. Street-lit crossings, plazas at both ends, no straight shot down the avenue.','Ночной центр города. Освещённые перекрёстки, площади по краям, проспект не простреливается насквозь.'],
+    ['Overgrown ruins. A pillared courtyard at A, a sunken plaza at B, a maze of broken walls mid.','Заросшие руины. Двор с колоннами на A, площадь на B, лабиринт разрушенных стен в центре.'],
+    ['Steel works. Furnace hall at A, loading dock at B, conveyor lines through the middle.','Сталелитейный завод. Печной цех на A, погрузочная площадка на B, конвейеры в центре.'],
+    ['Red-rock canyon. Two long sniper lanes and a rocky gorge in between.','Каньон из красного камня. Две длинные снайперские линии и ущелье между ними.'],
+    ['Freight yard at sunset. Rows of wagons, a goods shed at A, an open loading area at B.','Товарная станция на закате. Ряды вагонов, склад на A, открытая погрузочная площадка на B.'],
+    ['Close quarters under floodlights. Tight corridors, two vaults, no room for a sniper.','Ближний бой под прожекторами. Узкие коридоры, два хранилища, снайперу негде развернуться.'],
+    ['Mountain hamlet in winter. Fight through the houses to the chapel square or the old barn.','Горная деревня зимой. Бой через дома к площади у часовни или к старому амбару.'],
+    ['Heavy','Тяжёлое'],['Viper Auto','Автопистолет Viper'],['Wasp PDW','ПП Wasp'],['Breaker 12','Дробовик Breaker 12'],['HMG-90','Пулемёт HMG-90'],['Marksman DMR','Винтовка DMR'],
+    ['Flashbang','Светошумовая граната'],['Incendiary','Зажигательная граната'],['Blinds anyone looking at it','Ослепляет всех, кто на неё смотрит'],['7s fire, ~32 dmg/s, smoke puts it out','Огонь 7 с, ~32 урона/с, гаснет в дыму'],
+    ['No shop in arms race','В гонке вооружений нет магазина'],['Arms race · every kill gives the next gun','Гонка вооружений · каждое убийство даёт следующее оружие'],
+    ['Sudden death · next kill wins','Овертайм · следующее убийство решает'],['Kill limit reached','Достигнут лимит убийств'],['Time limit reached','Время матча истекло'],['Arms race completed','Гонка вооружений пройдена'],
+    ['SPAWN SHIELD','ЗАЩИТА ПОСЛЕ ВОЗРОЖДЕНИЯ'],['FLASH','СВЕТОШУМ.'],['FIRE','ОГОНЬ'],
+    ['Multiplayer','Мультиплеер'],['Play with friends','Игра с друзьями'],['You play as','Вы играете как'],['Nickname','Ник'],['Servers','Серверы'],['Add server','Добавить сервер'],['Edit server','Изменить сервер'],
+    ['Refresh','Обновить'],['Create match','Создать матч'],['Open matches','Открытые матчи'],['Match code','Код матча'],['Server name','Название сервера'],['Address','Адрес'],['Save','Сохранить'],['Delete','Удалить'],['Cancel','Отмена'],
+    ['Address and port of a Breachline server: an IP with a port, or a tunnel link from Openport, playit and the like.','Адрес и порт сервера Breachline: IP с портом или ссылка туннеля Openport, playit и подобных.'],
+    ['Add a server to play over the network.','Добавьте сервер, чтобы играть по сети.'],['No open matches yet. Create one!','Открытых матчей пока нет. Создайте свой!'],
+    ['in progress','идёт игра'],['online','в сети'],['offline','не в сети'],['ms','мс'],['in lobby','в лобби'],['invite only','по приглашениям'],['Match name','Название матча'],['Players, you included','Игроков, включая вас'],
+    ['Allowed nicknames','Разрешённые ники'],['(optional, one per line or separated by commas)','(необязательно, по одному на строку или через запятую)'],['Confirm and create','Подтвердить и создать'],['Back','Назад'],
+    ['The port belongs to the server: your own server asks for it when it starts (see start-server in the game folder); then forward it with Openport or a similar tool and give friends the address.','Порт задаётся у сервера: свой сервер спрашивает его при запуске (start-server в папке игры). Затем пробросьте порт через Openport или похожую утилиту и дайте друзьям адрес.'],
+    ['Only these players can join; the match starts by itself once all %d are in.','Войти смогут только эти игроки; матч начнётся сам, когда соберутся все %d.'],
+    ['Anyone with the code can join; the match starts by itself when all %d places are taken.','Войти может любой с кодом; матч начнётся сам, когда займут все %d мест.'],
+    ['Match of %s','Матч %s'],['Searching for players','Поиск игроков'],['Waiting for the host','Ожидание ведущего'],['Joining the match…','Подключение к матчу…'],['Start now','Начать сейчас'],['Leave','Выйти'],['Copy','Копировать'],
+    ['host','ведущий'],['ready','готов'],['waiting','ждём'],['Everyone is here — starting in %d','Все на месте — старт через %d'],
+    ['Players: %d of %d. You can start now: bots take the empty places.','Игроков: %d из %d. Можно начать сейчас: свободные места займут боты.'],['Players: %d of %d','Игроков: %d из %d'],
+    ['Match','Матч'],['The match has started. Press Resume.','Матч начался. Нажмите «Продолжить».'],['You are in a network match. Press Resume.','Вы в сетевом матче. Нажмите «Продолжить».'],
+    ['This server has no HTTPS, so this page cannot reach it. Open the game on that server instead: ','У этого сервера нет HTTPS, поэтому эта страница не может к нему подключиться. Откройте игру прямо на нём: '],
+    ['The server does not answer. Check the address and that the server is running.','Сервер не отвечает. Проверьте адрес и что сервер запущен.'],
+    ['The server did not understand the game','Сервер не понял игру'],['Different game versions. Reload the page','Разные версии игры. Обновите страницу'],['Enter a nickname','Введите ник'],
+    ['This nickname belongs to an account — sign in to use it','Этот ник принадлежит аккаунту — войдите в него'],['The server is full, try later','Сервер переполнен, попробуйте позже'],
+    ['This match code is taken','Этот код матча занят'],['Match not found','Матч не найден'],['The match is full','Матч заполнен'],['You are not on this match’s player list','Вас нет в списке игроков этого матча'],
+    ['This nickname is already in the match','Этот ник уже есть в матче'],['The host closed the match','Ведущий закрыл матч'],['Connection to host closed','Соединение с ведущим закрыто'],
     ['Planting','Установка'],['Defusing (kit)','Обезвреживание (набор)'],['Defusing','Обезвреживание'],['Hold E to plant','Удерживайте E для установки'],['Carry the bomb to site A or B','Доставьте бомбу на точку A или B'],['Hold E to defuse','Удерживайте E для обезвреживания'],
     ['Continue save','Продолжить сохранение'],['No save','Нет сохранения'],['Guest','Гость'],['Name','Имя'],['Password','Пароль'],['Log in','Войти'],['Register','Регистрация'],['Sign in','Вход'],['Create account','Создать аккаунт'],['Repeat password','Повторите пароль'],['Created: ','Создан: '],['Log out on other devices','Выйти на других устройствах'],['Change password','Сменить пароль'],['Current password','Текущий пароль'],['New password','Новый пароль'],['Delete account','Удалить аккаунт'],['Delete forever','Удалить навсегда'],
     ['Name: 3–24 letters, digits, _ or -. Password: 8+ characters, without the name.','Имя: 3–24 буквы, цифры, _ или -. Пароль: от 8 символов, без имени.'],
     ['Name: 3–24 letters, digits, _ or -','Имя: 3–24 буквы, цифры, _ или -'],['Name cannot mix Latin and Cyrillic','Имя не может смешивать латиницу и кириллицу'],['This name is taken','Это имя уже занято'],['Password: 8 to 128 characters','Пароль: от 8 до 128 символов'],['Password must not contain the name','Пароль не должен содержать имя'],['New password matches the old one','Новый пароль совпадает со старым'],
     ['Wrong name or password','Неверное имя или пароль'],['Wrong password','Неверный пароль'],['Too many attempts. Wait and try again','Слишком много попыток. Подождите и попробуйте снова'],['Session expired. Sign in again','Сессия истекла. Войдите снова'],['The server rejected the save','Сервер отклонил сохранение'],['Server error','Ошибка сервера'],['Server unavailable','Сервер недоступен'],
     ['Passwords do not match','Пароли не совпадают'],['Account created','Аккаунт создан'],['Password changed. Other devices were signed out','Пароль изменён. Другие устройства вышли из аккаунта'],['Account deleted','Аккаунт удалён'],['Other devices were signed out','Другие устройства вышли из аккаунта'],['No other active sign-ins','Других активных входов нет'],
-    ['Cannot reach the game server','Нет связи с сервером игры'],['No server','Нет сервера'],['Profile','Профиль'],['Account','Аккаунт'],['Close','Закрыть'],['Avatar','Аватар'],['Upload photo','Загрузить фото'],['Remove photo','Убрать фото'],
-    ['Accounts are unavailable: the page was opened without the game server. Run','Аккаунты недоступны: страница открыта без сервера игры. Запустите'],['and open','и откройте'],
+    ['Cannot reach the game server','Нет связи с сервером игры'],['No server','Нет сервера'],['Profile','Профиль'],['Account','Аккаунт'],['Close','Закрыть'],['Icon','Значок'],['Colour','Цвет'],['Upload photo','Загрузить фото'],['Remove photo','Убрать фото'],
+    ['Accounts are unavailable: the page was not opened from the game server. Open the game at the server’s address — for example the Render site, or your own server started with start-server.','Аккаунты недоступны: страница открыта не с сервера игры. Откройте игру по адресу сервера — например, сайт на Render или свой сервер, запущенный через start-server.'],
     ['Matches','Матчи'],['Wins','Победы'],['Win rate','Доля побед'],['Kills','Убийства'],['Deaths','Смерти'],['K/D','У/С'],['File is too large','Файл слишком большой'],['Could not upload the image','Не удалось загрузить изображение'],
     ['The account, stats, avatar and server save will be deleted permanently.','Аккаунт, статистика, аватар и серверное сохранение будут удалены безвозвратно.'],
 ['Log out','Выйти'],['LAN multiplayer','Игра по локальной сети'],['Guest nickname','Ник гостя'],['Room code','Код комнаты'],['Create room','Создать комнату'],['Join','Подключиться'],['Save match','Сохранить матч'],
@@ -39,6 +77,8 @@
     ['Saved in account','Сохранено в аккаунте'],['Saved in browser','Сохранено в браузере'],['Signed in','Вход выполнен'],['Signed out','Вы вышли из аккаунта'],['Connection to host closed','Соединение с ведущим закрыто'],['Network closed','Сеть закрыта'],['Connecting to match…','Подключение к матчу…'],['You are in a network match. Press Resume.','Вы в сетевом матче. Нажмите «Продолжить».']
   ];
   const en = new Map(pairs), ru = new Map(pairs.map(([a,b]) => [b,a]));
+  // For text assembled in game code: translate the template before filling it in.
+  window.I18N = { tr: text => lang === 'ru' ? (en.get(text) ?? text) : text };
   let lang = 'ru'; try { lang = localStorage.getItem('bl_language') || 'ru'; } catch {}
   if (!['ru','en'].includes(lang)) lang = 'ru';
   const cache = new WeakMap();
@@ -49,16 +89,19 @@
     if (map.has(trimmed)) return value.replace(trimmed, map.get(trimmed));
     if (lang === 'ru') return value
       .replace(/ROUND (\d+) · TO (\d+)/g, 'РАУНД $1 · ДО $2').replace(/Round (\d+) · Buy phase/g, 'Раунд $1 · Время покупки')
-      .replace(/Round (\d+) · first to (\d+)/g, 'Раунд $1 · до $2 побед').replace(/Bomb planted at /g, 'Бомба установлена на ')
+      .replace(/Round (\d+) · first to (\d+)/g, 'Раунд $1 · до $2 побед')
+      .replace(/TEAM DEATHMATCH · TO (\d+)/g, 'КОМАНДНЫЙ БОЙ · ДО $1').replace(/ARMS RACE · LEVEL (\d+)\/(\d+)/g, 'ГОНКА · УРОВЕНЬ $1/$2')
+      .replace(/Team deathmatch · first to (\d+) kills/g, 'Командный бой · до $1 убийств').replace(/Arms race · (\d+) levels/g, 'Гонка вооружений · $1 уровней')
+      .replace(/^Respawn in (\d+)$/, 'Возрождение через $1').replace(/^Level (\d+) · /, 'Уровень $1 · ').replace(/ kills\)/g, ' убийств)').replace(/Bomb planted at /g, 'Бомба установлена на ')
       .replace(/Spectating /g, 'Наблюдение: ').replace(/ HP · click to switch/g, ' ОЗ · нажмите для смены')
       .replace(/(Counter-Terrorists|Terrorists) take it (\d+–\d+) on /g, (_,team,score) => `${en.get(team)} побеждает ${score} на `)
-      .replace(/(Enemy team eliminated|Time ran out|Target bombed|Bomb defused)/g, x => en.get(x))
-      .replace(/ dmg\)/g, ' урона)').replace(/DMG (\d+) · (AUTO|SEMI) · (\d+) RDS/g, (_,d,m,n) => `УРОН ${d} · ${m === 'AUTO' ? 'АВТО' : 'ОДИН'} · ${n} ПАТР.`);
+      .replace(/(Enemy team eliminated|Time ran out|Target bombed|Bomb defused|Kill limit reached|Time limit reached|Arms race completed)/g, x => en.get(x))
+      .replace(/ dmg\)/g, ' урона)').replace(/DMG ([\d×]+) · (AUTO|SEMI) · (\d+) RDS/g, (_,d,m,n) => `УРОН ${d} · ${m === 'AUTO' ? 'АВТО' : 'ОДИН'} · ${n} ПАТР.`);
     return value;
   }
   function visit(root) {
     if (root.nodeType === 3) {
-      if (!root.parentElement || root.parentElement.closest('script,style,option,input,#accountName:not(.guest),#accountTitle:not(.guest),#accountSince,#lanState,#username,#nickname,.kf span,td:first-child,#labels')) return;
+      if (!root.parentElement || root.parentElement.closest('script,style,option,input,#accountName:not(.guest),#accountTitle:not(.guest),#accountSince,#lbSlots b,#lbCode,#lbServer,#srvList b,#srvList small,#srvName,#srvAddr,.room b,#mpAs,#lanState,#username,#nickname,.kf span,td:first-child,#labels')) return;
       const old = cache.get(root), current = root.nodeValue;
       const source = old && current === old.output ? old.source : current;
       const output = translate(source);
