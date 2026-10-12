@@ -577,6 +577,7 @@ function buildCommonTextures() {
   MAT.white = mat(TEX.white); MAT.bomb = mat(TEX.white, { color: [.25, .27, .22], spec: .5 }); MAT.led = mat(TEX.white, { color: [1, .1, .1], emis: [3, .2, .1] });
   MAT.nadeHE = mat(TEX.white, { color: [.2, .28, .16], spec: .5 }); MAT.nadeSm = mat(TEX.white, { color: [.5, .52, .55], spec: .5 });
   MAT.blade = mat(TEX.white, { color: [.7, .72, .75], spec: 1.5 });
+  MAT.rocket = mat(TEX.white, { color: [.33, .38, .24], spec: .3 }); MAT.flame = mat(TEX.white, { color: [1, .6, .2], emis: [6, 3, .8] });
   MAT.nadeFl = mat(TEX.white, { color: [.72, .75, .8], spec: .6 }); MAT.nadeMo = mat(TEX.white, { color: [.32, .2, .08], spec: 1.4 }); MAT.cloth = mat(TEX.white, { color: [.8, .7, .55] });
 }
 
@@ -1008,6 +1009,8 @@ const W = {
   wasp: { name: 'Wasp PDW', slot: 1, dmg: 22, rate: .066, mag: 50, res: 100, reload: 3.1, spread: .015, moveSpread: .016, recoil: .009, speed: .96, price: 2350, kill: 300, auto: true, snd: 'pdw', armor: .62, fall: .84, model: 'wasp' },
   sg12: { name: 'Breaker 12', slot: 1, dmg: 19, pellets: 9, rate: .88, mag: 7, res: 28, reload: 3.0, spread: .055, moveSpread: .02, recoil: .07, speed: .9, price: 1100, kill: 900, auto: false, snd: 'shotgun', armor: .5, fall: .78, model: 'sg12' },
   hmg: { name: 'HMG-90', slot: 1, dmg: 32, rate: .085, mag: 100, res: 200, reload: 5.4, spread: .012, moveSpread: .12, recoil: .015, speed: .78, price: 5200, kill: 300, auto: true, snd: 'lmg', armor: .75, fall: .97, model: 'hmg' },
+  // fires a visible rocket that explodes where it hits; the blast hurts everyone near it, the shooter too
+  rocket: { name: 'RL-7 Rocket Launcher', slot: 1, rocket: true, dmg: 140, radius: 6.5, rate: 1.2, mag: 1, res: 4, reload: 3.2, spread: .004, moveSpread: .05, recoil: .09, speed: .8, price: 4200, kill: 300, auto: false, snd: 'rocket', armor: .6, fall: 1, model: 'rocket' },
   dmr: { name: 'Marksman DMR', slot: 1, dmg: 64, rate: .26, mag: 20, res: 60, reload: 3.0, spread: .0012, moveSpread: .1, unscoped: .025, recoil: .04, speed: .82, price: 3900, kill: 300, auto: false, scope: true, zooms: 1, snd: 'dmr', armor: .85, fall: .99, model: 'dmr' },
   he: { name: 'HE Grenade', slot: 4, nade: 'he', price: 300, speed: 1, model: 'he' },
   smoke: { name: 'Smoke Grenade', slot: 4, nade: 'smoke', price: 300, speed: 1, model: 'smoke' },
@@ -1036,6 +1039,14 @@ function buildGun(k) {
     case 'wasp': A(G2, [0, .01, -.06], [.06, .1, .42]); A(G1, [0, .075, -.08], [.03, .03, .3]); A(G1, [0, .065, .06], [.05, .022, .24]); A(G1, [0, .02, -.3], [.02, .02, .08]); A(G1, [0, -.08, -.14], [.034, .1, .045], [.25, 0, 0]); A(G1, [0, -.03, .16], [.05, .06, .06]); tip = [0, .02, -.34]; break;
     case 'sg12': A(G1, [0, .02, -.02], [.055, .07, .28]); A(G1, [0, .048, -.38], [.03, .03, .5]); A(G1, [0, .008, -.35], [.026, .026, .44]); A(WD, [0, .008, -.3], [.052, .048, .16]);
       A(WD, [0, -.025, .24], [.046, .095, .28], [-.08, 0, 0]); A(G1, [0, -.06, .06], [.035, .1, .045], [.3, 0, 0]); A(G1, [0, .068, -.62], [.008, .014, .01]); tip = [0, .048, -.64]; break;
+    case 'rocket': {
+      const tube = (t, sc) => root.kids.push(node(MESH.cyl, MAT.rocket, t, [Math.PI / 2, 0, 0], sc));
+      tube([0, .06, -.1], [.11, .95, .11]); root.kids.push(node(MESH.cyl, G1, [0, .06, -.58], [Math.PI / 2, 0, 0], [.13, .06, .13])); root.kids.push(node(MESH.cyl, G1, [0, .06, .38], [Math.PI / 2, 0, 0], [.14, .06, .14]));
+      A(G1, [0, -.06, -.05], [.035, .11, .045], [.25, 0, 0]); A(G1, [0, -.05, -.28], [.035, .09, .045]); A(G2, [-.07, .1, -.15], [.03, .06, .1]); tip = [0, .06, -.62]; break;
+    }
+    case 'rocket_round':
+      root.kids.push(node(MESH.cyl, MAT.rocket, [0, 0, .1], [Math.PI / 2, 0, 0], [.08, .36, .08])); root.kids.push(node(MESH.sph, G2, [0, 0, -.12], [0, 0, 0], [.11, .11, .2]));
+      root.kids.push(node(MESH.sph, MAT.flame, [0, 0, .32], [0, 0, 0], [.07, .07, .16])); tip = [0, 0, 0]; break;
     case 'hmg': A(G1, [0, .02, -.05], [.075, .1, .42]); A(G1, [0, .03, -.42], [.052, .052, .42]); A(G1, [0, .03, -.68], [.022, .022, .14]); A(G2, [0, -.09, -.08], [.085, .1, .13]);
       A(G1, [0, -.025, -.52], [.04, .015, .2]); A(G1, [0, 0, .25], [.05, .1, .28]); A(G1, [0, -.07, .07], [.035, .1, .045], [.3, 0, 0]); A(G1, [0, .1, -.12], [.02, .045, .14]); tip = [0, .03, -.76]; break;
     case 'dmr': A(G2, [0, .02, -.05], [.055, .08, .4]); A(G1, [0, .03, -.48], [.022, .022, .4]); root.kids.push(node(MESH.cyl, G1, [0, .11, -.06], [Math.PI / 2, 0, 0], [.045, .26, .045]));
@@ -1232,7 +1243,8 @@ function fire(e, alt = false) {
     const a = Math.random() * TAU, r = d.pellets ? Math.sqrt(Math.random()) * (d.spread + spread * .3) : (Math.random() + Math.random()) * .5 * spread;
     let dx = fx + (rx * Math.cos(a) + ux * Math.sin(a)) * r, dy = fy + uy * Math.sin(a) * r, dz = fz + (rz * Math.cos(a) + uz * Math.sin(a)) * r;
     const L = Math.hypot(dx, dy, dz); dx /= L; dy /= L; dz /= L;
-    traceShot(e, ox, oy, oz, dx, dy, dz, d, w.k, p > 2);
+    if (d.rocket) launchRocket(e, ox + dx * .5, oy + dy * .5, oz + dz * .5, dx, dy, dz);
+    else traceShot(e, ox, oy, oz, dx, dy, dz, d, w.k, p > 2);
   }
   e.recoil += 1;
   const rk = d.recoil * (e.isPlayer ? 1 : .6);
@@ -1327,7 +1339,68 @@ function noiseEvent(e, radius) { NOISES.push({ x: e.x, z: e.z, team: e.team, t: 
 function aiInit(b) {
   b.ai = { path: [], pi: 0, goal: null, goalKey: '', target: null, visible: false, seen: -9, react: 0, track: 0, errX: 0, errY: 0, errT: 0, burst: 0, pause: 0,
     strafe: 0, strafeT: 0, think: rand(0, .2), mode: 'move', holdLook: null, lookAt: null, lookT: 0, stuckT: 0, lx: b.x, lz: b.z, repath: 0, aimHead: false, xs: 0,
-    role: '', spot: null, scan: 0, crouchHold: false, waitT: 0, sideT: 0 };
+    role: '', spot: null, scan: 0, crouchHold: false, waitT: 0, sideT: 0, nade: null, nadeCd: rand(4, 10), smoked: false };
+}
+// ---------- bot grenades ----------
+// Pitch that lands a normal throw (dirFrom(pitch + .1) * 16, +1.6 up, gravity 18) closest to distance d.
+function throwPitch(d, dy = 0) {
+  let best = 0, err = 1e9;
+  for (let p = -.5; p <= 1.1; p += .02) {
+    const a = p + .1, vx = Math.cos(a) * 16, vy = Math.sin(a) * 16 + 1.6, y0 = 1.47 - dy;
+    const t = (vy + Math.sqrt(vy * vy + 36 * y0)) / 18, range = vx * t;
+    if (Math.abs(range - d) < err) { err = Math.abs(range - d); best = p; }
+  }
+  return best;
+}
+// Decide whether a bot throws something now: frags at enemies in sight, flashes before peeking,
+// smoke onto the defenders' side when attackers execute, fire on a planted bomb or a held corner.
+function aiPlanNade(b) {
+  const ai = b.ai, nades = b.slots[4];
+  if (ai.nade || ai.nadeCd > 0 || !nades.length || GAME.phase !== 'live' || b.reloadT > 0 || b.flash > .3) return;
+  const has = k => nades.includes(k), plan = (k, x, z, look) => { ai.nade = { k, x, z, t: GAME.now, look }; };
+  const t = ai.target, now = GAME.now, bomb = GAME.bomb;
+  if (t && ai.visible) {
+    const d = Math.hypot(t.x - b.x, t.z - b.z);
+    if (has('he') && d > 8 && d < 24 && Math.random() < .06) return plan('he', t.x, t.z);
+    if (has('molly') && d > 7 && d < 20 && Math.random() < .025) return plan('molly', t.x, t.z);
+    return;
+  }
+  if (ai.lastKnown && now - ai.seen < 4) {
+    const d = Math.hypot(ai.lastKnown.x - b.x, ai.lastKnown.z - b.z);
+    if (has('flash') && d > 6 && d < 18 && Math.random() < .08) return plan('flash', ai.lastKnown.x, ai.lastKnown.z, true);
+    if (has('he') && d > 8 && d < 22 && Math.random() < .03) return plan('he', ai.lastKnown.x, ai.lastKnown.z);
+  }
+  if (rules().bomb && b.team === 'T' && has('smoke') && !ai.smoked && ai.spot && ai.role === 'push') {
+    const d = Math.hypot(ai.spot[0] - b.x, ai.spot[1] - b.z);
+    if (d < 18 && d > 7) { // smoke between the site and where the defenders come from
+      const ct = G.def.spawns.CT, cx = cellCenter(ct[0] + ct[2] / 2), cz = cellCenter(ct[1] + ct[3] / 2), k = 6 / Math.max(1, Math.hypot(cx - ai.spot[0], cz - ai.spot[1]));
+      ai.smoked = true; return plan('smoke', ai.spot[0] + (cx - ai.spot[0]) * k, ai.spot[1] + (cz - ai.spot[1]) * k);
+    }
+  }
+  if (bomb.state === 'planted' && b.team === 'CT' && has('molly')) {
+    const d = Math.hypot(bomb.x - b.x, bomb.z - b.z);
+    if (d > 7 && d < 20 && Math.random() < .05) return plan('molly', bomb.x, bomb.z);
+  }
+  if (bomb.state === 'planted' && b.team === 'CT' && has('smoke') && !ai.smoked) {
+    const d = Math.hypot(bomb.x - b.x, bomb.z - b.z);
+    if (d > 9 && d < 22) { ai.smoked = true; return plan('smoke', (bomb.x + b.x) / 2, (bomb.z + b.z) / 2); }
+  }
+}
+// Carry out a planned throw: pull the grenade, face the spot, throw, then (for a flash) look away.
+// Returns the yaw/pitch to use, or null when there is nothing to do.
+function aiDoNade(b) {
+  const ai = b.ai, n = ai.nade;
+  if (!n) return null;
+  if (GAME.now - n.t > 3 || !b.slots[4].includes(n.k) || GAME.phase !== 'live') { ai.nade = null; ai.nadeCd = rand(3, 6); if (b.cur === 4) setSlot(b, bestSlot(b)); return null; }
+  if (b.slots[4][0] !== n.k) { b.slots[4].splice(b.slots[4].indexOf(n.k), 1); b.slots[4].unshift(n.k); }
+  if (b.cur !== 4) setSlot(b, 4);
+  const d = Math.hypot(n.x - b.x, n.z - b.z), yaw = yawTo(b.x, b.z, n.x, n.z), pitch = throwPitch(d);
+  if (b.switchT <= 0 && b.cool <= 0 && Math.abs(angDiff(b.yaw, yaw)) < .08 && Math.abs(b.pitch - pitch) < .08) {
+    fire(b);
+    ai.nade = null; ai.nadeCd = rand(8, 16);
+    if (n.look) { ai.lookAt = { x: b.x * 2 - n.x, z: b.z * 2 - n.z }; ai.lookT = 1.6; } // don't watch your own flash
+  }
+  return { yaw, pitch };
 }
 function aiOnDamaged(b, att) {
   const ai = b.ai; if (!ai) return;
@@ -1405,8 +1478,10 @@ function aiThink(b) {
   }
   // ---- weapon management ----
   const w = curW(b);
-  if (b.cur !== bestSlot(b) && b.reloadT <= 0 && (!ai.visible || !w || (w.mag === 0 && w.res === 0))) setSlot(b, bestSlot(b));
+  if (!ai.nade && b.cur !== bestSlot(b) && b.reloadT <= 0 && (!ai.visible || !w || (w.mag === 0 && w.res === 0))) setSlot(b, bestSlot(b));
   if (!ai.visible && w && w.d.mag && w.mag < w.d.mag * .45 && w.res > 0 && GAME.now - ai.seen > 1.2) startReload(b);
+  // ---- grenades ----
+  aiPlanNade(b);
   // ---- objective ----
   aiObjective(b);
 }
@@ -1470,7 +1545,7 @@ function aiObjective(b) {
 
 function aiUpdate(b, dt) {
   const ai = b.ai, D = DIFF[GAME.diff];
-  ai.think -= dt; ai.repath -= dt; ai.lookT -= dt; ai.errT -= dt; ai.strafeT -= dt; ai.waitT -= dt;
+  ai.think -= dt; ai.repath -= dt; ai.lookT -= dt; ai.errT -= dt; ai.strafeT -= dt; ai.waitT -= dt; ai.nadeCd -= dt;
   if (ai.think <= 0) { ai.think = .1 + Math.random() * .08; aiThink(b); }
   let wx = 0, wz = 0, spd = 6.1 * ((curW(b) && curW(b).d.speed) || 1), wantYaw = null, wantPitch = 0, crouch = false;
   const frozen = GAME.phase === 'freeze';
@@ -1481,7 +1556,8 @@ function aiUpdate(b, dt) {
   if (t && t.alive && ai.visible && !frozen) {
     ai.track += dt; ai.react -= dt; if (ai.errT <= 0) aiErr(b, false);
     const decay = Math.exp(-ai.track * D.track);
-    const aimY = ai.aimHead ? t.y + eyeH(t) + .03 : t.y + 1.15 - .4 * t.crouch;
+    const w0 = curW(b);
+    const aimY = w0?.d.rocket ? t.y + .3 : ai.aimHead ? t.y + eyeH(t) + .03 : t.y + 1.15 - .4 * t.crouch; // rockets at the feet: the blast does the rest
     const ex = b.x, ey = b.y + eyeH(b), ez = b.z; const dist = Math.hypot(t.x - ex, t.z - ez);
     // lead slightly for moving targets
     const lead = .05; const tx = t.x + t.vx * lead, tz = t.z + t.vz * lead;
@@ -1490,6 +1566,7 @@ function aiUpdate(b, dt) {
     ai.xs = (1 - D.track / 3) * .01 * decay;
     const w = curW(b);
     // movement in combat
+    if (w && w.d.rocket && dist < 6 && b.slots[2]) setSlot(b, 2); // too close for a rocket
     if (w && (w.d.melee || (w.d.pellets && dist > 9))) { wx = (t.x - b.x) / dist; wz = (t.z - b.z) / dist; }
     else {
       if (ai.strafeT <= 0) { ai.strafe = Math.random() < (dist < 12 ? .7 : .35) * (ai.holding ? .35 : 1) ? (Math.random() < .5 ? -1 : 1) : 0; ai.strafeT = rand(.25, .7); }
@@ -1500,7 +1577,7 @@ function aiUpdate(b, dt) {
     // fire control
     const aerr = Math.abs(angDiff(b.yaw, wantYaw)) + Math.abs(b.pitch - wantPitch);
     const tol = Math.max(.035, Math.atan2(.55, dist));
-    if (ai.react <= 0 && w && b.reloadT <= 0 && b.switchT <= 0 && aerr < tol * 2.2) {
+    if (ai.react <= 0 && w && !w.d.nade && b.reloadT <= 0 && b.switchT <= 0 && aerr < tol * 2.2) {
       if (w.d.melee) { if (dist < 1.9) fire(b, Math.random() < .3); }
       else if (w.d.auto) {
         if (ai.pause > 0) ai.pause -= dt;
@@ -1539,6 +1616,8 @@ function aiUpdate(b, dt) {
   const burning = fireAt(b.x, b.z, b.y);
   if (burning && !frozen) { const dx = b.x - burning.x, dz = b.z - burning.z, l = Math.hypot(dx, dz) || 1; wx = dx / l; wz = dz / l; spd = 6.1; }
   if (frozen) { wx = wz = 0; }
+  const throwAim = aiDoNade(b);
+  if (throwAim) { wantYaw = throwAim.yaw; wantPitch = throwAim.pitch; }
   // turning
   if (wantYaw != null) { const dy = angDiff(b.yaw, wantYaw); const tr = D.turn * dt * (ai.visible ? 1 : .6); b.yaw += clamp(dy, -tr, tr) * (Math.abs(dy) < .3 && ai.visible ? .5 + .5 * Math.min(1, Math.abs(dy) / .3) : 1); }
   b.pitch += clamp(wantPitch - b.pitch, -D.turn * dt * .7, D.turn * dt * .7);
@@ -1559,7 +1638,7 @@ const MODES = {
 };
 const LADDERS = {
   short: ['kr47', 'wasp', 'sg12', 'dmr', 'hc50', 'knife'],
-  full: ['m5', 'kr47', 'hmg', 'wasp', 'mpx', 'sg12', 'dmr', 'lb338', 'hc50', 'viper', 'p9', 'knife'],
+  full: ['m5', 'kr47', 'rocket', 'hmg', 'wasp', 'sg12', 'dmr', 'lb338', 'hc50', 'viper', 'p9', 'knife'],
 };
 const SPAWN_SHIELD = 2, TDM_BUY_TIME = 10;
 function rules() { return MODES[GAME.rules] || MODES.bomb; }
@@ -1621,6 +1700,7 @@ function botBuy(b, first) {
     const r = Math.random();
     if (!hasSniper && b.money >= 4750 + 1000 && r < .25) buy('lb338');
     else if (b.money >= 5200 + 1000 && r < .32) buy('hmg');
+    else if (b.money >= 4200 + 1000 && r < .36) buy('rocket');
     else if (b.money >= 3900 + 1000 && r < .42) buy('dmr');
     else if (b.money >= W[rifle].price + 650) buy(rifle);
     else if (b.money >= 2350 + 650 && r < .5) buy('wasp');
@@ -1629,6 +1709,9 @@ function botBuy(b, first) {
   if (b.armor < 100 || !b.helmet) { if (b.money >= 1000) buy('helmet'); else if (b.money >= 650 && b.armor < 50) buy('kevlar'); }
   if (!b.slots[1] && b.money >= 700 && Math.random() < .5) buy('hc50');
   if (b.team === 'CT' && !b.kit && rules().bomb && b.money >= 400 && Math.random() < .6) buy('kit');
+  // grenades with what is left: attackers like smokes and flashes, defenders fire
+  const wish = b.team === 'T' ? ['smoke', 'flash', 'he', 'molly'] : ['flash', 'he', 'molly', 'smoke'];
+  for (const k of wish) if (b.money >= W[k].price + 200 && Math.random() < .55) buy(k);
 }
 // Continuous modes: what a fighter carries after (re)spawning.
 function giveLoadout(e) {
@@ -1640,6 +1723,7 @@ function giveLoadout(e) {
     e.pref[2] = pick(['p9', 'p9', 'viper', 'hc50']);
   }
   for (const s of [1, 2]) if (e.pref[s] && W[e.pref[s]]) e.slots[s] = newWeapon(e.pref[s]);
+  if (e.bot && Math.random() < .6) e.slots[4].push(pick(['he', 'flash', 'molly', 'smoke']));
   e.cur = 0; setSlot(e, bestSlot(e));
 }
 function giveLevel(e) {
@@ -1807,16 +1891,48 @@ function bombExplode() {
 }
 
 // ---------- grenades ----------
+const THROWN = {}; // grenades thrown by type, for checks
 function throwNade(e, alt) {
   const k = e.slots[4].shift(); if (!k) return false;
+  THROWN[k] = (THROWN[k] || 0) + 1;
   const [dx, dy, dz] = dirFrom(e.yaw, e.pitch + (alt ? 0 : .1)); const sp = alt ? 7 : 16;
   NADES.push({ k, x: e.x + dx * .4, y: e.y + eyeH(e) - .15, z: e.z + dz * .4, vx: dx * sp + e.vx * .6, vy: dy * sp + 1.6, vz: dz * sp + e.vz * .6, t: 0, owner: e, node: buildGun(k), spin: 0, rest: false });
   e.cool = .7; sfx.throw(e);
   if (e.slots[4].length) { if (e.isPlayer) vmRebuild(); e.switchT = .4; } else { e.cur = 0; setSlot(e, e.slots[1] ? 1 : 2); }
   return true;
 }
+function launchRocket(e, x, y, z, dx, dy, dz) {
+  NADES.push({ k: 'rocket_round', x, y, z, vx: dx * 38, vy: dy * 38, vz: dz * 38, t: 0, owner: e, node: buildGun('rocket_round'), spin: 0, rest: false });
+}
+// A rocket flies straight and explodes on the first wall, floor or fighter in its way.
+function flyRocket(n, dt) {
+  const sx = n.vx * dt, sy = n.vy * dt, sz = n.vz * dt, l = Math.hypot(sx, sy, sz), dx = sx / l, dy = sy / l, dz = sz / l;
+  const hw = rayGrid(n.x, n.y, n.z, dx, dy, dz, l), wallT = hw.t, wall = hw.type >= 0;
+  const hc = traceChars(n.t < .15 ? n.owner : null, n.x, n.y, n.z, dx, dy, dz, Math.min(wallT, l));
+  n.t += dt;
+  if (hc || wall || n.t > 4) {
+    const t = hc ? hc.t : wallT;
+    let x = n.x + dx * t, y = n.y + dy * t, z = n.z + dz * t;
+    if (!hc && wall) { x += RAY.nx * .2; y += RAY.ny * .2; z += RAY.nz * .2; }
+    rocketExplode(x, y, z, n.owner, hc && hc.e);
+    return true;
+  }
+  n.x += sx; n.y += sy; n.z += sz;
+  return false;
+}
+function rocketExplode(x, y, z, owner, direct) {
+  const d = W.rocket;
+  fxEvent('he', x, y, z);
+  for (const e of ENTS) {
+    if (!e.alive) continue;
+    const dist = e === direct ? 0 : Math.hypot(e.x - x, e.y + 1 - y, e.z - z);
+    if (dist < d.radius && los(x, y + .2, z, e.x, e.y + 1, e.z, false)) damage(e, d.dmg * Math.pow(1 - dist / d.radius, 1.1), owner, 'rocket', false, d.armor);
+  }
+  noiseEvent({ x, z, team: owner?.team }, 60);
+}
 function updateNades(dt) {
   for (let i = NADES.length - 1; i >= 0; i--) {
+    if (NADES[i].k === 'rocket_round') { if (flyRocket(NADES[i], dt)) NADES.splice(i, 1); continue; }
     const n = NADES[i];
     for (let s = 0; s < 2; s++) {
       const h = dt / 2; n.vy -= 18 * h;
@@ -1895,6 +2011,12 @@ function updateFires(dt) {
   }
 }
 function fireFx(dt) {
+  for (const n of NADES) if (n.k === 'rocket_round') {
+    const l = Math.hypot(n.vx, n.vy, n.vz) || 1, bx = -n.vx / l, by = -n.vy / l, bz = -n.vz / l;
+    P({ x: n.x + bx * .3, y: n.y + by * .3, z: n.z + bz * .3, vx: bx * 2, vy: by * 2, vz: bz * 2, life: .12, size: .25, cell: 0, r: 1, g: .7, b: .3, add: true });
+    P({ x: n.x + bx * .4, y: n.y + by * .4, z: n.z + bz * .4, vx: rand(-.2, .2), vy: rand(.1, .4), vz: rand(-.2, .2), life: rand(1, 1.8), size: .25, grow: .9, cell: 1, r: .75, g: .74, b: .72, a: .5, drag: 1.5 });
+    DLIGHTS.push({ x: n.x, y: n.y, z: n.z, c: [4, 2.4, 1], r: 6, life: .03 });
+  }
   for (const f of FIRES) {
     const r = fireRadius(f), n = Math.min(12, 70 * dt * r);
     for (let k = 0; k < n; k++) {
@@ -1923,7 +2045,7 @@ function updateSmokes(dt) {
 // ---------- effects ----------
 let SHAKE = 0;
 function shake(a) { SHAKE = Math.max(SHAKE, a); }
-function P(o) { if (PARTS.length > 2400) PARTS.splice(0, 200); PARTS.push(Object.assign({ vx: 0, vy: 0, vz: 0, grow: 0, grav: 0, drag: 0, rot: Math.random() * TAU, vr: 0, add: false, t: 0, cell: 0, a: 1, size: .1 }, o)); }
+function P(o) { if (PARTS.length > QUALITY.parts) PARTS.splice(0, 200); PARTS.push(Object.assign({ vx: 0, vy: 0, vz: 0, grow: 0, grav: 0, drag: 0, rot: Math.random() * TAU, vr: 0, add: false, t: 0, cell: 0, a: 1, size: .1 }, o)); }
 const SURF = { 0: [.82, .72, .56], 1: [.8, .7, .55], 2: [.6, .45, .3], 3: [.6, .45, .3], 4: [.5, .3, .25], 5: [.55, .52, .5], 6: [.55, .52, .5], 7: [.8, .7, .55] };
 function surfCol(t) { const c = SURF[t] || [.7, .7, .7]; return G.theme && G.theme.surf && (t === 0 || t === 1 || t === 7) ? G.theme.surf : c; }
 function fxImpact(x, y, z, n, t, knife) {
@@ -2022,6 +2144,7 @@ const SHOT = {
   rifle2: [{ fq: 3000, fq2: 700, dur: .18, gain: .8 }, { osc: 'sine', f: 150, f2: 45, dur: .1, gain: .65 }, { ft: 'highpass', fq: 5000, dur: .035, gain: .28 }],
   pdw: [{ fq: 3800, fq2: 1100, dur: .09, gain: .55 }, { osc: 'sine', f: 190, f2: 70, dur: .05, gain: .4 }],
   shotgun: [{ fq: 1700, fq2: 280, dur: .5, gain: 1.3 }, { osc: 'sine', f: 85, f2: 28, dur: .26, gain: 1.2 }, { ft: 'highpass', fq: 3000, dur: .07, gain: .35 }, { ft: 'bandpass', fq: 900, q: 3, dur: .06, gain: .25, delay: .45 }, { ft: 'bandpass', fq: 1400, q: 3, dur: .05, gain: .25, delay: .58 }],
+  rocket: [{ ft: 'bandpass', fq: 600, fq2: 3000, q: .7, dur: .9, gain: 1, att: .03 }, { osc: 'sine', f: 70, f2: 30, dur: .3, gain: 1 }, { ft: 'highpass', fq: 2500, dur: .12, gain: .4 }],
   lmg: [{ fq: 2300, fq2: 500, dur: .24, gain: 1 }, { osc: 'sine', f: 120, f2: 36, dur: .14, gain: .85 }, { ft: 'highpass', fq: 3800, dur: .04, gain: .3 }],
   dmr: [{ fq: 2400, fq2: 380, dur: .45, gain: 1.1 }, { osc: 'sine', f: 110, f2: 32, dur: .2, gain: .95 }, { ft: 'highpass', fq: 4400, dur: .04, gain: .3 }],
   sniper: [{ fq: 2000, fq2: 260, dur: .75, gain: 1.25 }, { osc: 'sine', f: 95, f2: 28, dur: .32, gain: 1.1 }, { fq: 900, fq2: 200, dur: .8, gain: .25, delay: .22 }],
@@ -2132,6 +2255,7 @@ addEventListener('wheel', ev => {
   let i = order.indexOf(PLAYER.cur); i = (i + (ev.deltaY > 0 ? 1 : -1) + order.length) % order.length; setSlot(PLAYER, order[i]);
 }, { passive: true });
 function lockPointer(fromClick = true) {
+  if (TOUCH.on) { FALLBACK = true; hidePause(); return; } // touch play needs no mouse capture
   const fail = () => { if (fromClick) { FALLBACK = true; hidePause(); } else if (playing() && GAME.phase !== 'over') showPause(); };
   if (!cv.requestPointerLock) { FALLBACK = true; return; }
   try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(fail); } catch (e) { fail(); }
@@ -2155,7 +2279,7 @@ function hidePause() { UI.pauseOpen = false; GAME.paused = false; $('#pause').hi
 // ---------- buy menu ----------
 const BUY_ITEMS = [
   { k: 'p9', cat: 'Pistols' }, { k: 'viper', cat: 'Pistols' }, { k: 'hc50', cat: 'Pistols' },
-  { k: 'mpx', cat: 'SMG' }, { k: 'wasp', cat: 'SMG' }, { k: 'sg12', cat: 'Heavy' }, { k: 'hmg', cat: 'Heavy' },
+  { k: 'mpx', cat: 'SMG' }, { k: 'wasp', cat: 'SMG' }, { k: 'sg12', cat: 'Heavy' }, { k: 'hmg', cat: 'Heavy' }, { k: 'rocket', cat: 'Heavy' },
   { k: 'rifle', cat: 'Rifles' }, { k: 'dmr', cat: 'Rifles' }, { k: 'lb338', cat: 'Rifles' },
   { k: 'kevlar', cat: 'Gear' }, { k: 'helmet', cat: 'Gear' }, { k: 'kit', cat: 'Gear' },
   { k: 'he', cat: 'Grenades' }, { k: 'smoke', cat: 'Grenades' }, { k: 'flash', cat: 'Grenades' }, { k: 'molly', cat: 'Grenades' },
@@ -2210,6 +2334,7 @@ function uiRoundEnd(w, reason, mvp) {
   if (PLAYER) (w === PLAYER.team ? sfx.win : sfx.lose)();
 }
 function uiMatchOver(w) {
+  $('#overXP').hidden = true;
   if (LOCKED) document.exitPointerLock();
   $('#over').hidden = false; $('#banner').hidden = true;
   const won = PLAYER && w === PLAYER.team;
@@ -2220,7 +2345,7 @@ function uiMatchOver(w) {
   reportMatch(won);
 }
 const SHORT = { knife: 'KNIFE', p9: 'P9', hc50: 'HC-50', mpx: 'MPX', kr47: 'KR-47', m5: 'M5', lb338: 'LONGBOW', he: 'HE', bomb: 'BOMB', smoke: 'SMOKE',
-  viper: 'VIPER', wasp: 'WASP', sg12: 'BREAKER', hmg: 'HMG-90', dmr: 'DMR', flash: 'FLASH', molly: 'FIRE' };
+  viper: 'VIPER', wasp: 'WASP', sg12: 'BREAKER', hmg: 'HMG-90', rocket: 'RL-7', dmr: 'DMR', flash: 'FLASH', molly: 'FIRE' };
 const HS_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-label="headshot"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></svg>';
 function uiFeed(att, v, wk, head) {
   if (NET.role === 'host') netSend({ to: 'all', msg: { type: 'kill', attacker: att?.id, victim: v.id, wk, head } });
@@ -2360,7 +2485,7 @@ function updateCamera(dt) {
   if (src.isPlayer) { CAM.yaw = src.yaw + src.punchY * pv; CAM.pitch = src.pitch + src.punchP * pv; }
   else { const k = 1 - Math.exp(-dt * 14); CAM.yaw += angDiff(CAM.yaw, src.yaw) * k; CAM.pitch = lerp(CAM.pitch, src.pitch, k); }
   if (SHAKE > .01) { CAM.x += (Math.random() - .5) * SHAKE * .2; CAM.y += (Math.random() - .5) * SHAKE * .2; CAM.pitch += (Math.random() - .5) * SHAKE * .05; }
-  const tf = src.scope === 2 ? 12 : src.scope === 1 ? 36 : 74; CAM.fov = lerp(CAM.fov, tf, 1 - Math.exp(-dt * 22));
+  const tf = src.scope === 2 ? 12 : src.scope === 1 ? 36 : SET.fov; CAM.fov = lerp(CAM.fov, tf, 1 - Math.exp(-dt * 22));
 }
 
 // ---------- rendering ----------
@@ -2389,11 +2514,11 @@ function dynamicNodes() {
   return list;
 }
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.5) * (QUALITY.scale || 1);
+  const dpr = Math.min(window.devicePixelRatio || 1, QUALITY.dpr) * (QUALITY.scale || 1);
   const w = Math.floor(cv.clientWidth * dpr), h = Math.floor(cv.clientHeight * dpr);
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
 }
-const QUALITY = { scale: 1, shadows: true };
+const QUALITY = { scale: 1, shadows: true, max: 1, dpr: 1.5, parts: 2400 };
 function render() {
   resize(); const th = G.theme; if (!th) return;
   M4.persp(PROJ, CAM.fov * Math.PI / 180, cv.width / cv.height, .05, 800);
@@ -2672,6 +2797,111 @@ $('#resume').onclick = () => { audioInit(); lockPointer(); if (FALLBACK) hidePau
 $('#leave').onclick = toMenu;
 $('#again').onclick = startGame; $('#overMenu').onclick = toMenu;
 $('#buyClose').onclick = closeBuy;
+// ---------- touch controls ----------
+// Phones and tablets: a stick where the left thumb lands, drag anywhere else to look, buttons for the rest.
+// The controls feed the same KEYS / MOUSE state the keyboard and mouse use.
+const TOUCH = { on: false, stick: null, look: null, fire: null, origin: [0, 0] };
+function touchMode() {
+  if (TOUCH.on) return;
+  TOUCH.on = true; document.body.classList.add('touch');
+  if (document.pointerLockElement) document.exitPointerLock();
+  FALLBACK = true; touchShow();
+}
+function touchShow() { $('#touch').hidden = !(TOUCH.on && playing() && !UI.pauseOpen && !UI.buy && GAME.phase !== 'over'); }
+function stickKeys(dx, dy) {
+  const l = Math.hypot(dx, dy), dead = 18;
+  KEYS.KeyW = dy < -dead && Math.abs(dy) > l * .38; KEYS.KeyS = dy > dead && Math.abs(dy) > l * .38;
+  KEYS.KeyA = dx < -dead && Math.abs(dx) > l * .38; KEYS.KeyD = dx > dead && Math.abs(dx) > l * .38;
+  // a short push walks quietly
+  KEYS.ShiftLeft = l > dead && l < 45;
+}
+function touchLook(dx, dy) {
+  if (!PLAYER || !PLAYER.alive || uiBlocking()) return;
+  const z = PLAYER.scope === 2 ? .2 : PLAYER.scope === 1 ? .45 : 1, k = .0042 * SENS * z;
+  PLAYER.yaw -= dx * k; PLAYER.pitch = clamp(PLAYER.pitch - dy * k, -1.5, 1.5);
+  VM.mdx += dx; VM.mdy += dy;
+}
+function touchAction(t, down) {
+  const p = PLAYER;
+  if (t === 'fire') { MOUSE.l = down; if (down) { MOUSE.lPress = true; audioInit(); if (p && !p.alive) cycleSpec(1); } return; }
+  if (t === 'jump') { KEYS.Space = down; return; }
+  if (t === 'crouch') { KEYS.KeyC = down; return; }
+  if (t === 'use') { KEYS.KeyE = down; return; }
+  if (t === 'board') { UI.board = down; if (down) renderBoard(); $('#board').hidden = !down; return; }
+  if (!down) return;
+  if (t === 'pause') { showPause(); touchShow(); return; }
+  if (!p || !p.alive) return;
+  if (t === 'reload') startReload(p);
+  if (t === 'alt') altFire(p);
+  if (t === 'swap') { const order = [1, 2, 3, 4].filter(s => s === 3 || (s === 4 ? p.slots[4].length : p.slots[s])); setSlot(p, order[(order.indexOf(p.cur) + 1) % order.length]); }
+  if (t === 'buy') { if (UI.buy) closeBuy(); else if (canBuyNow()) openBuy(); else uiMsg(rules().ladder ? 'No shop in arms race' : 'Buy time is over', 1.2); }
+}
+addEventListener('touchstart', touchMode, { passive: true, capture: true });
+$('#touch').addEventListener('pointerdown', ev => {
+  ev.preventDefault();
+  const btn = ev.target.closest('.tb');
+  try { $('#touch').setPointerCapture(ev.pointerId); } catch {}
+  if (btn) {
+    btn.classList.add('on');
+    const t = btn.dataset.t; btn.dataset.pid = ev.pointerId;
+    if (t === 'fire') TOUCH.fire = { id: ev.pointerId, x: ev.clientX, y: ev.clientY };
+    touchAction(t, true); return;
+  }
+  if (ev.clientX < innerWidth * .42 && !TOUCH.stick) {
+    TOUCH.stick = ev.pointerId; TOUCH.origin = [ev.clientX, ev.clientY];
+    const st = $('#tStick'); st.hidden = false; st.style.left = ev.clientX + 'px'; st.style.top = ev.clientY + 'px'; st.firstChild.style.transform = '';
+  } else if (!TOUCH.look) TOUCH.look = { id: ev.pointerId, x: ev.clientX, y: ev.clientY };
+});
+$('#touch').addEventListener('pointermove', ev => {
+  if (ev.pointerId === TOUCH.stick) {
+    let dx = ev.clientX - TOUCH.origin[0], dy = ev.clientY - TOUCH.origin[1]; const l = Math.hypot(dx, dy), max = 60;
+    if (l > max) { dx *= max / l; dy *= max / l; }
+    $('#tStick').firstChild.style.transform = `translate(${dx}px,${dy}px)`; stickKeys(dx, dy);
+  }
+  for (const k of ['look', 'fire']) {
+    const t = TOUCH[k];
+    if (t && t.id === ev.pointerId) { touchLook(ev.clientX - t.x, ev.clientY - t.y); t.x = ev.clientX; t.y = ev.clientY; }
+  }
+});
+function touchEnd(ev) {
+  if (ev.pointerId === TOUCH.stick) { TOUCH.stick = null; $('#tStick').hidden = true; stickKeys(0, 0); }
+  if (TOUCH.look?.id === ev.pointerId) TOUCH.look = null;
+  if (TOUCH.fire?.id === ev.pointerId) TOUCH.fire = null;
+  for (const b of document.querySelectorAll('#touch .tb')) if (b.dataset.pid === String(ev.pointerId)) { b.classList.remove('on'); delete b.dataset.pid; touchAction(b.dataset.t, false); }
+}
+$('#touch').addEventListener('pointerup', touchEnd);
+$('#touch').addEventListener('pointercancel', touchEnd);
+setInterval(touchShow, 250);
+
+// ---------- settings ----------
+const SET = Object.assign({ fov: 74, xc: '#7dffb0', xl: 8, xdot: false, quality: 'high', fps: false }, store.get('settings', {}));
+const XCOLORS = ['#7dffb0', '#ffffff', '#ffe14d', '#4de8ff', '#ff5a5a', '#ff7ae0'];
+const QPRESETS = { low: { max: .6, dpr: 1, shadows: false, parts: 900 }, medium: { max: .85, dpr: 1.25, shadows: true, parts: 1600 }, high: { max: 1, dpr: 1.5, shadows: true, parts: 2400 } };
+function applySettings(save = true) {
+  if (save) store.set('settings', SET);
+  for (const el of [$('#xhair'), $('#xhPreview')]) { el.style.setProperty('--xc', SET.xc); el.style.setProperty('--xl', SET.xl + 'px'); el.classList.toggle('dot', SET.xdot); }
+  const q = QPRESETS[SET.quality] || QPRESETS.high;
+  Object.assign(QUALITY, { max: q.max, dpr: q.dpr, parts: q.parts, shadows: q.shadows }); QUALITY.scale = Math.min(QUALITY.scale, q.max);
+  $('#fpsBox').hidden = !SET.fps;
+  $('#setFov').value = SET.fov; $('#setFovV').textContent = SET.fov + '°';
+  $('#setXc').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === SET.xc));
+  $('#setXs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.v === SET.xl));
+  $('#setQ').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === SET.quality));
+  $('#setXdot').checked = SET.xdot; $('#setFps').checked = SET.fps;
+  $('#setSens').value = SENS; $('#setSensV').textContent = (+SENS).toFixed(2);
+  $('#setVol').value = AU.vol; $('#setVolV').textContent = Math.round(AU.vol * 100) + '%';
+}
+$('#setXc').innerHTML = XCOLORS.map(c => `<button type="button" data-v="${c}" aria-label="${c}"><i style="background:${c}"></i></button>`).join('');
+$('#setXc').onclick = ev => { const b = ev.target.closest('button'); if (b) { SET.xc = b.dataset.v; applySettings(); } };
+$('#setXs').onclick = ev => { const b = ev.target.closest('button'); if (b) { SET.xl = +b.dataset.v; applySettings(); } };
+$('#setQ').onclick = ev => { const b = ev.target.closest('button'); if (b) { SET.quality = b.dataset.v; applySettings(); } };
+$('#setXdot').onchange = () => { SET.xdot = $('#setXdot').checked; applySettings(); };
+$('#setFps').onchange = () => { SET.fps = $('#setFps').checked; applySettings(); };
+$('#setFov').oninput = () => { SET.fov = +$('#setFov').value; applySettings(); };
+$('#setSens').oninput = () => { SENS = +$('#setSens').value; store.set('sens', SENS); sensEl.value = SENS; $('#sensV').textContent = SENS.toFixed(2); applySettings(false); };
+$('#setVol').oninput = () => { AU.vol = +$('#setVol').value; store.set('vol', AU.vol); volEl.value = AU.vol; if (AU.out) AU.out.gain.value = AU.vol; applySettings(false); };
+$('#setOpen').onclick = $('#pauseSettings').onclick = () => { applySettings(false); $('#settings').hidden = false; };
+$('#setClose').onclick = () => { $('#settings').hidden = true; };
 const sensEl = $('#sens'), volEl = $('#vol');
 sensEl.value = SENS; volEl.value = AU.vol; $('#sensV').textContent = (+SENS).toFixed(2);
 sensEl.oninput = () => { SENS = +sensEl.value; store.set('sens', SENS); $('#sensV').textContent = SENS.toFixed(2); };
@@ -2692,7 +2922,7 @@ function step(dt) {
 }
 // The bot match behind the menu, a background window or a slow GPU must not hog the whole machine:
 // an overloaded integrated GPU stalls the desktop and makes the mouse look stuck.
-let frameGate = 0;
+let frameGate = 0, fpsShowAcc = 0, fpsShowN = 0;
 function frameBudget() {
   if (document.hidden || !document.hasFocus()) return 1 / 10;
   if (!playing()) return 1 / 30;
@@ -2710,13 +2940,15 @@ function frame(t) {
     render(); uiUpdate(dt);
   } catch (err) { console.error(err); window.__err = String(err && err.stack || err); }
   // adaptive resolution
+  fpsShowAcc += dt; fpsShowN++;
+  if (fpsShowAcc > .5) { if (SET.fps) $('#fpsBox').textContent = Math.round(fpsShowN / fpsShowAcc) + ' FPS'; fpsShowAcc = 0; fpsShowN = 0; }
   if (!budget) {
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 2) {
       const fps = fpsN / fpsAcc;
       if (fps < 40 && QUALITY.scale > .5) QUALITY.scale -= .1;
       else if (fps < 25 && QUALITY.shadows) QUALITY.shadows = false; // last resort on very weak GPUs
-      else if (fps > 58 && QUALITY.scale < 1) QUALITY.scale += .05;
+      else if (fps > 58 && QUALITY.scale < QUALITY.max) QUALITY.scale = Math.min(QUALITY.max, QUALITY.scale + .05);
       fpsAcc = 0; fpsN = 0;
     }
   }
@@ -2725,7 +2957,7 @@ function boot() {
   if (!glInit(cv)) { $('#nogl').hidden = false; $('#menu').hidden = true; return; }
   buildPrograms(); makeShadow(); buildBaseMeshes(); buildCommonTextures();
   BB_ALPHA = new BBBatch(3500); BB_ADD = new BBBatch(2500); BB_DECAL = new BBBatch(600); BB_VM = new BBBatch(4);
-  menuInit(); startAttract();
+  menuInit(); applySettings(false); startAttract();
   if (matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches) $('#touchNote').hidden = false;
   requestAnimationFrame(frame);
 }
@@ -2807,7 +3039,19 @@ function renderPickers() {
   $('#colorPick').innerHTML = AVATAR_COLORS.map((c, i) => `<button type="button" data-color="${i}" class="${!a.image && a.color === i ? 'on' : ''}" aria-label="${i + 1}"><span class="sw" style="background:${c}"></span></button>`).join('');
   $('#avatarReset').hidden = !a.image;
 }
+// ---- ranks: a name for every level band
+const RANKS = [[1, 'Recruit'], [3, 'Private'], [6, 'Corporal'], [10, 'Sergeant'], [15, 'Staff Sergeant'], [20, 'Lieutenant'], [26, 'Captain'], [33, 'Major'], [41, 'Colonel'], [50, 'General']];
+const rankOf = level => RANKS.filter(r => level >= r[0]).pop()[1];
+function renderRank() {
+  if (!account) return;
+  const lvl = account.level || 1;
+  $('#rankName').textContent = '★ ' + tr(rankOf(lvl));
+  $('#rankLvl').textContent = tr('Level %d').replace('%d', lvl);
+  $('#xpFill').style.width = Math.min(100, 100 * (account.into || 0) / (account.need || 500)).toFixed(1) + '%';
+  $('#xpText').textContent = tr('%a of %b experience to the next level').replace('%a', account.into || 0).replace('%b', account.need || 500);
+}
 function renderStats() {
+  renderRank();
   const s = account?.stats || { matches: 0, wins: 0, kills: 0, deaths: 0 };
   const cell = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
   $('#statsBox').innerHTML = cell(s.matches, 'Матчи') + cell(s.wins, 'Победы') + cell(s.matches ? Math.round(s.wins / s.matches * 100) + '%' : '—', 'Доля побед') +
@@ -2857,7 +3101,7 @@ function refreshAccount() {
   for (const id of ['#accountName', '#accountTitle']) { $(id).classList.toggle('guest', !account); $(id).textContent = account ? account.name : 'Гость'; }
   $('#accountAva').innerHTML = $('#profileAva').innerHTML = avatarHTML(account);
   $('#accountBtn').classList.toggle('offline', !serverUp);
-  $('#accountBtn small').textContent = !serverUp ? 'Нет сервера' : account ? 'Профиль' : 'Войти';
+  $('#accountBtn small').textContent = !serverUp ? 'Нет сервера' : account ? `${tr('Lvl')} ${account.level || 1} · ${tr(rankOf(account.level || 1))}` : 'Войти';
   $('#accountKind').textContent = account ? 'Профиль' : 'Аккаунт';
   $('#offline').hidden = serverUp;
   $('#authPane').hidden = !!account; $('#profilePane').hidden = !account;
@@ -2931,8 +3175,42 @@ $('#logoutOthers').onclick = async () => {
 function reportMatch(won) {
   if (!account || !PLAYER || GAME.attract || GAME.statsSent) return;
   GAME.statsSent = true;
-  api('stats', 'POST', { won, kills: PLAYER.kills, deaths: PLAYER.deaths }).then(r => { account = r.user; refreshAccount(); }).catch(e => status(e.message));
+  api('stats', 'POST', { won, kills: PLAYER.kills, deaths: PLAYER.deaths }).then(r => {
+    account = r.user; refreshAccount();
+    const box = $('#overXP'); box.hidden = false;
+    box.textContent = tr('+%d experience').replace('%d', r.gained) + (r.levelUp ? ' · ' + tr('New level %d: %s!').replace('%d', account.level).replace('%s', tr(rankOf(account.level))) : '');
+  }).catch(e => status(e.message));
 }
+
+// ---- leaderboard
+let ranksBy = 'xp';
+async function openRanks() { $('#ranks').hidden = false; renderRanks(); }
+async function renderRanks() {
+  document.querySelectorAll('#ranksBy [data-by]').forEach(b => b.classList.toggle('on', b.dataset.by === ranksBy));
+  const list = $('#ranksList'); list.innerHTML = '<p class="empty">…</p>';
+  let data;
+  try { data = await api('leaderboard?by=' + ranksBy); } catch (e) { list.innerHTML = '<p class="empty"></p>'; list.firstChild.textContent = e.message; return; }
+  list.innerHTML = '';
+  if (!data.top.length) { list.innerHTML = '<p class="empty"></p>'; list.firstChild.textContent = tr('Nobody has finished a match yet.'); }
+  for (const u of data.top) {
+    const row = document.createElement('div'); row.className = 'rk' + (account && u.id === account.id ? ' me' : '');
+    const value = ranksBy === 'xp' ? u.stats.xp : u.stats[ranksBy];
+    row.innerHTML = `<span class="pl">${u.place}</span><span class="ava">${avatarHTML(u)}</span><div><b></b><br><small></small></div><span class="val">${value}</span>`;
+    row.querySelector('b').textContent = u.name;
+    row.querySelector('small').textContent = `${tr(rankOf(u.level))} · ${tr('Lvl')} ${u.level} · ${tr('Matches')}: ${u.stats.matches}`;
+    list.appendChild(row);
+  }
+  $('#ranksMe').textContent = data.me ? tr('Your place: %a of %b').replace('%a', data.me.place).replace('%b', data.players) : account ? '' : tr('Sign in to appear in the leaderboard.');
+}
+document.querySelectorAll('#ranksBy [data-by]').forEach(b => { b.onclick = () => { ranksBy = b.dataset.by; renderRanks(); }; });
+$('#ranksOpen').onclick = openRanks;
+// ---- what's new: shown once after an update, then from the menu
+const VERSION = '2.1';
+const closeNews = () => { $('#news').hidden = true; try { localStorage.setItem('bl_seen_version', VERSION); } catch {} };
+$('#newsOpen').onclick = () => { $('#news').hidden = false; };
+$('#newsClose').onclick = $('#newsOk').onclick = closeNews;
+try { if (localStorage.getItem('bl_seen_version') !== VERSION && !navigator.webdriver) $('#news').hidden = false; } catch {}
+$('#ranksClose').onclick = () => { $('#ranks').hidden = true; };
 function packEntity(e) {
   const out = {};
   for (const [k, v] of Object.entries(e)) if (v === null || ['string', 'number', 'boolean'].includes(typeof v)) out[k] = v;
@@ -3331,7 +3609,7 @@ setInterval(() => {
 }, 20);
 (async () => { try { account = (await api('me')).user; } catch { serverUp = false; } await loadAccountSave(); })();
 
-window.__game = { VM, damage, endRound, uiMatchOver, updateCamera, GAME, get ENTS() { return ENTS; }, get PLAYER() { return PLAYER; }, CAM, NET, snapshot, applySnapshot, saveMatch, connectServer, openMP, disconnectLAN, toMenu, startGame, KEYS, MOUSE, CFG, step, fire, setSlot, doBuy, G };
+window.__game = { THROWN, VM, damage, endRound, uiMatchOver, updateCamera, GAME, get ENTS() { return ENTS; }, get PLAYER() { return PLAYER; }, CAM, NET, snapshot, applySnapshot, saveMatch, connectServer, openMP, disconnectLAN, toMenu, startGame, KEYS, MOUSE, CFG, step, fire, setSlot, doBuy, G };
 { let booted = false; const go = () => { if (!booted) { booted = true; boot(); } }; if (document.fonts && document.fonts.ready) document.fonts.ready.then(go); setTimeout(go, 1500); }
 
 })();

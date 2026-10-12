@@ -104,7 +104,7 @@ test('account deletion removes the account, sessions and save', async () => {
 });
 test('profile: emblem avatar, uploaded picture and match stats', async () => {
   const r = await api('register','POST',{ name:'Painter', password:'brush-strokes-1' }); assert.equal(r.status,201,JSON.stringify(r.data)); const id = r.data.user.id;
-  assert.deepEqual(r.data.user.stats,{ matches:0, wins:0, kills:0, deaths:0 });
+  assert.deepEqual(r.data.user.stats,{ matches:0, wins:0, kills:0, deaths:0, xp:0 }); assert.equal(r.data.user.level, 1);
   assert.ok(Number.isInteger(r.data.user.avatar.icon) && Number.isInteger(r.data.user.avatar.color));
   assert.equal((await api('profile','PUT',{ avatar:{ icon:99, color:0 } },r.cookie)).data.error,'bad_avatar');
   assert.deepEqual((await api('profile','PUT',{ avatar:{ icon:3, color:5 } },r.cookie)).data.user.avatar,{ icon:3, color:5 });
@@ -118,7 +118,11 @@ test('profile: emblem avatar, uploaded picture and match stats', async () => {
   assert.equal((await api('profile','PUT',{ avatar:{ icon:1, color:1 } },r.cookie)).data.user.avatar.image,undefined);
   assert.equal((await fetch(base + '/api/avatar/' + id)).status,404);
   const stats = await api('stats','POST',{ won:true, kills:7, deaths:2 },r.cookie);
-  assert.deepEqual(stats.data.user.stats,{ matches:1, wins:1, kills:7, deaths:2 });
+  assert.deepEqual(stats.data.user.stats,{ matches:1, wins:1, kills:7, deaths:2, xp:270 }); // 50 + 150 win + 7·10
+  assert.equal(stats.data.gained, 270); assert.equal(stats.data.user.level, 1); assert.equal(stats.data.user.into, 270); assert.equal(stats.data.user.need, 500);
+  const board = (await api('leaderboard?by=xp','GET',null,r.cookie)).data;
+  assert.ok(board.top.some(u => u.id === id && u.stats.xp === 270)); assert.deepEqual(board.top.map(u => u.place), board.top.map((_, i) => i + 1));
+  assert.equal(board.me.id, id); assert.equal(board.top.find(u => u.id === id).created, undefined);
   assert.equal((await api('stats','POST',{ won:false, kills:1, deaths:1 },r.cookie)).status,429);
   assert.equal((await api('stats','POST',{ won:true, kills:-1, deaths:0 })).status,401);
   assert.deepEqual((await api('me','GET',null,r.cookie)).data.user.stats,stats.data.user.stats);

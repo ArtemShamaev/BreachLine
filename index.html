@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Breachline</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,9 +63,11 @@ button:focus-visible{outline:2px solid var(--sand);outline-offset:2px}
 #slots{display:flex;gap:10px;font-family:var(--f-mono);font-size:10px;color:var(--dim);letter-spacing:.06em}
 #slots span b{margin-right:4px;color:var(--text);opacity:.5} #slots span.on{color:var(--text)} #slots span.on b{opacity:1;color:var(--sand)}
 #xhair{--gap:5px;position:absolute;left:50%;top:50%;width:0;height:0}
-#xhair i{position:absolute;background:#7dffb0;box-shadow:0 0 0 1px rgba(0,0,0,.55)}
-#xhair i:nth-child(1){width:2px;height:8px;left:-1px;bottom:var(--gap)} #xhair i:nth-child(2){width:2px;height:8px;left:-1px;top:var(--gap)}
-#xhair i:nth-child(3){height:2px;width:8px;top:-1px;right:var(--gap)} #xhair i:nth-child(4){height:2px;width:8px;top:-1px;left:var(--gap)}
+#xhair{--xc:#7dffb0;--xl:8px}
+#xhair i,#xhair b{position:absolute;background:var(--xc);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+#xhair i:nth-child(1){width:2px;height:var(--xl);left:-1px;bottom:var(--gap)} #xhair i:nth-child(2){width:2px;height:var(--xl);left:-1px;top:var(--gap)}
+#xhair i:nth-child(3){height:2px;width:var(--xl);top:-1px;right:var(--gap)} #xhair i:nth-child(4){height:2px;width:var(--xl);top:-1px;left:var(--gap)}
+#xhair b{width:2px;height:2px;left:-1px;top:-1px;display:none}#xhair.dot b{display:block}
 #hitm{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;opacity:0;transition:opacity .1s;background:
   linear-gradient(45deg,transparent 46%,#fff 46%,#fff 54%,transparent 54%) center/100% 100%,linear-gradient(-45deg,transparent 46%,#fff 46%,#fff 54%,transparent 54%) center/100% 100%;
   -webkit-mask:radial-gradient(circle,transparent 6px,#000 6.5px);mask:radial-gradient(circle,transparent 6px,#000 6.5px)}
@@ -211,6 +213,63 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
 .radar-pulse i:nth-child(2){animation-delay:.8s}.radar-pulse i:nth-child(3){animation-delay:1.6s}
 @keyframes ping{0%{transform:scale(.2);opacity:.9}100%{transform:scale(1);opacity:0}}
 @media (max-width:760px){.mpCols{grid-template-columns:1fr}}
+/* ---------- touch controls ---------- */
+#touch{position:absolute;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
+#touch .tb{position:absolute;width:74px;height:74px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:rgba(255,255,255,.9);
+  font:700 12px var(--f-mono);letter-spacing:.06em;touch-action:none;padding:0}
+#touch .tb.on{background:rgba(233,201,143,.35);border-color:var(--sand)}
+#touch .tb.big{width:104px;height:104px;font-size:15px;right:calc(env(safe-area-inset-right,0px) + 28px);bottom:120px}
+#touch .tb.sm{width:56px;height:44px;border-radius:8px;top:calc(env(safe-area-inset-top,0px) + 8px)}
+#touch [data-t=jump]{right:calc(env(safe-area-inset-right,0px) + 20px);bottom:24px}
+#touch [data-t=crouch]{right:calc(env(safe-area-inset-right,0px) + 110px);bottom:24px}
+#touch [data-t=alt]{right:calc(env(safe-area-inset-right,0px) + 148px);bottom:150px}
+#touch [data-t=reload]{right:calc(env(safe-area-inset-right,0px) + 40px);bottom:240px}
+#touch [data-t=use]{right:calc(env(safe-area-inset-right,0px) + 130px);bottom:250px}
+#touch [data-t=swap]{right:calc(env(safe-area-inset-right,0px) + 200px);bottom:24px}
+
+#touch [data-t=board]{right:calc(env(safe-area-inset-right,0px) + 76px)}
+#touch [data-t=pause]{right:calc(env(safe-area-inset-right,0px) + 12px)}
+#tStick{position:absolute;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;border:2px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);pointer-events:none}
+#tStick i{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;background:rgba(255,255,255,.3)}
+body.touch #keys{display:none}
+#touch .tb.sm[data-t=buy]{left:calc(env(safe-area-inset-left,0px) + 14px);top:auto;bottom:118px}
+/* with touch controls the ammo counter moves out of the button area, to the bottom centre */
+body.touch #ammoBox{right:auto;left:50%;transform:translateX(-50%);bottom:8px}
+body.touch #ammoBox #slots{display:none}
+@media (max-height:500px){
+  #radar{width:118px;height:118px}#money{font-size:20px}#vitals b,#mag{font-size:28px}#topbar .tm b{font-size:22px}#timer{font-size:22px}
+  #touch .tb{width:58px;height:58px;font-size:10px}#touch .tb.big{width:84px;height:84px;font-size:13px;bottom:96px;right:calc(env(safe-area-inset-right,0px) + 22px)}
+  #touch [data-t=jump]{bottom:14px;right:calc(env(safe-area-inset-right,0px) + 16px)}#touch [data-t=crouch]{bottom:14px;right:calc(env(safe-area-inset-right,0px) + 84px)}
+  #touch [data-t=swap]{bottom:14px;right:calc(env(safe-area-inset-right,0px) + 152px)}#touch [data-t=alt]{bottom:110px;right:calc(env(safe-area-inset-right,0px) + 118px)}
+  #touch [data-t=reload]{bottom:190px;right:calc(env(safe-area-inset-right,0px) + 30px)}#touch [data-t=use]{bottom:178px;right:calc(env(safe-area-inset-right,0px) + 100px)}
+  #touch .tb.sm[data-t=buy]{bottom:96px}
+}
+/* ---------- settings ---------- */
+#settings .panel{width:min(620px,100%)}
+#settings label.sl{grid-template-columns:150px 1fr 48px}
+.xhRow{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.xhRow .seg{flex:1;min-width:220px}
+#setXc button{min-width:34px;padding:8px}#setXc button i{display:block;width:18px;height:18px;margin:auto;border-radius:50%}
+.xhPreview{width:64px;height:64px;background:#2b3133;position:relative;flex:none}
+.xhair-p{--gap:5px;--xc:#7dffb0;--xl:8px;position:absolute;left:50%;top:50%;width:0;height:0}
+.xhair-p i,.xhair-p b{position:absolute;background:var(--xc);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+.xhair-p i:nth-child(1){width:2px;height:var(--xl);left:-1px;bottom:var(--gap)}.xhair-p i:nth-child(2){width:2px;height:var(--xl);left:-1px;top:var(--gap)}
+.xhair-p i:nth-child(3){height:2px;width:var(--xl);top:-1px;right:var(--gap)}.xhair-p i:nth-child(4){height:2px;width:var(--xl);top:-1px;left:var(--gap)}
+.xhair-p b{width:2px;height:2px;left:-1px;top:-1px;display:none}.xhair-p.dot b{display:block}
+label.chk{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer}label.chk input{width:auto;margin:0;accent-color:var(--sand)}
+#fpsBox{position:absolute;top:6px;left:50%;transform:translateX(-50%);font-family:var(--f-mono);font-size:11px;color:var(--good);background:var(--plate);padding:2px 8px;pointer-events:none;z-index:5}
+.linkbtn{background:none;border:0;padding:0;color:var(--sand);font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;text-align:left;align-self:flex-start}
+#news .panel{width:min(640px,100%)}.news{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:16px;line-height:1.45}.news b{color:var(--sand)}
+/* ---------- progression ---------- */
+.rankBox{display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.05);padding:10px 12px}
+.rankHead{display:flex;justify-content:space-between;align-items:baseline}.rankHead b{font-size:20px;color:var(--sand)}.rankHead small{font-family:var(--f-mono);color:var(--dim)}
+.xpBar{height:8px;background:rgba(255,255,255,.1)}.xpBar i{display:block;height:100%;background:var(--sand);width:0}
+.overXP{margin-top:8px;font-size:20px;font-weight:800;color:var(--good)}
+.ranksList{display:flex;flex-direction:column;gap:4px;max-height:58vh;overflow:auto}
+.rk{display:grid;grid-template-columns:42px 40px 1fr auto auto;gap:12px;align-items:center;background:rgba(255,255,255,.05);padding:6px 10px}
+.rk.me{background:rgba(233,201,143,.14)}
+.rk .pl{font-family:var(--f-mono);font-size:18px;color:var(--dim);text-align:center}.rk:nth-child(1) .pl{color:#ffd25a}.rk:nth-child(2) .pl{color:#d8dde3}.rk:nth-child(3) .pl{color:#e0a46e}
+.rk .ava{width:36px;height:36px}.rk b{font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rk small{color:var(--dim);font-size:13px}.rk .val{font-family:var(--f-mono);font-size:16px;color:var(--sand);min-width:70px;text-align:right}
+#ranks .panel{width:min(720px,100%)}
 /* ---------- account ---------- */
 #accountBtn{position:absolute;top:16px;right:18px;pointer-events:auto;display:flex;align-items:center;gap:10px;border:0;background:var(--plate2);color:var(--text);padding:6px 14px 6px 6px;text-align:left;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}
 #accountBtn:hover{background:rgba(30,36,38,.92)}
@@ -261,7 +320,7 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
     <div id="vitals"><div class="v"><span class="lbl">HP</span><b id="hp">100</b></div><div class="v"><span class="lbl">ARMOR</span><b id="ap">0</b></div><div id="inv"></div></div>
     <div id="ammoBox"><div id="wname"></div><div><b id="mag">15</b><span id="res">/ 90</span></div><div id="slots"></div></div>
     <div id="labels"></div>
-    <div id="xhair"><i></i><i></i><i></i><i></i></div>
+    <div id="xhair"><i></i><i></i><i></i><i></i><b></b></div>
     <div id="hitm"></div>
     <div id="shield" hidden>SPAWN SHIELD</div>
     <div id="prog" hidden><div id="progLbl"></div><div class="bar"><div id="progFill"></div></div></div>
@@ -285,10 +344,10 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
       <div class="grp" id="sideGrp"><div class="eyebrow">Side</div><div class="seg"><button data-team="T">Terrorists</button><button data-team="CT">Counter-T</button><button data-team="auto">Auto</button></div></div>
       <div class="grp"><div class="eyebrow">Bot skill</div><div class="seg"><button data-diff="easy">Easy</button><button data-diff="normal">Normal</button><button data-diff="hard">Hard</button></div></div>
       <div class="grp"><div class="eyebrow">Match length</div><div class="seg"><button data-target="5">First to 5</button><button data-target="8">First to 8</button></div></div>
-      <div class="row"><button class="btn" id="deploy">Deploy</button><button class="btn ghost" id="mpOpen">Multiplayer</button></div>
+      <div class="row"><button class="btn" id="deploy">Deploy</button><button class="btn ghost" id="mpOpen">Multiplayer</button><button class="btn ghost" id="ranksOpen">Leaderboard</button><button class="btn ghost" id="setOpen">Settings</button></div>
       <div class="row"><button class="btn ghost" id="continue" disabled>Продолжить сохранение</button><small id="saveInfo"></small></div>
       <p id="serviceStatus" role="status" aria-live="polite"></p>
-      <div id="touchNote" class="eyebrow" hidden style="color:var(--t)">Needs a keyboard and mouse to play. The live bot match keeps running here.</div>
+      <div id="touchNote" class="eyebrow" hidden style="color:var(--t)">Touch controls: left thumb moves, right thumb looks, buttons on the right. A keyboard and mouse also work.</div>
       <div id="keys">
         <kbd>WASD</kbd><span>move · Shift walk · C / Ctrl crouch · Space jump</span>
         <kbd>Mouse</kbd><span>aim · LMB fire · RMB scope / heavy stab / lob</span>
@@ -297,6 +356,7 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
         <kbd>Tab · Esc</kbd><span>scoreboard · pause</span>
       </div>
       <div id="credit">Built by Claude Opus 5.5 · own WebGL2 engine, no assets loaded</div>
+      <button class="linkbtn" id="newsOpen" type="button">What’s new in 2.1</button>
     </div>
     <div id="watch"><i></i>Live bot match</div>
     <button id="accountBtn" type="button" aria-haspopup="dialog"><span class="ava" id="accountAva"></span><span class="who"><small>Аккаунт</small><b id="accountName" class="guest">Гость</b></span></button>
@@ -311,10 +371,10 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
     <div><div class="eyebrow">Paused</div><h2>Hold the line</h2></div>
     <label class="sl">Sensitivity<input type="range" id="sens" min="0.2" max="3" step="0.05"><span id="sensV"></span></label>
     <label class="sl">Volume<input type="range" id="vol" min="0" max="1" step="0.05"><span></span></label>
-    <button class="btn ghost" id="saveMatch">Сохранить матч</button><p id="pauseStatus" role="status"></p><div class="row"><button class="btn" id="resume">Resume</button><button class="btn ghost" id="leave">Leave match</button></div>
+    <button class="btn ghost" id="pauseSettings">Settings</button><button class="btn ghost" id="saveMatch">Сохранить матч</button><p id="pauseStatus" role="status"></p><div class="row"><button class="btn" id="resume">Resume</button><button class="btn ghost" id="leave">Leave match</button></div>
   </div></div>
   <div id="over" class="overlay" hidden><div class="panel">
-    <div class="eyebrow">Match over</div><h2 id="overTitle"></h2><div id="overSub" class="eyebrow" style="margin-top:4px"></div>
+    <div class="eyebrow">Match over</div><h2 id="overTitle"></h2><div id="overSub" class="eyebrow" style="margin-top:4px"></div><div id="overXP" class="overXP" hidden></div>
     <div id="overBoard"></div>
     <div class="row" style="margin-top:16px"><button class="btn" id="again">Rematch</button><button class="btn ghost" id="overMenu">Main menu</button></div>
   </div></div>
@@ -355,6 +415,37 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
     <p id="lbInfo" class="lbInfo"></p>
     <div class="row"><button class="btn" id="lbStart" type="button">Start match</button><button class="btn ghost" id="lbLeave" type="button">Leave server</button></div>
   </div></div>
+  <div id="settings" class="overlay screen" hidden role="dialog" aria-modal="true"><div class="panel">
+    <div class="scrHead"><div><div class="eyebrow">Game</div><h2>Settings</h2></div><button class="btn ghost acClose" id="setClose" type="button" aria-label="Close">✕</button></div>
+    <label class="sl">Sensitivity<input type="range" id="setSens" min="0.2" max="3" step="0.05"><span id="setSensV"></span></label>
+    <label class="sl">Volume<input type="range" id="setVol" min="0" max="1" step="0.05"><span id="setVolV"></span></label>
+    <label class="sl">Field of view<input type="range" id="setFov" min="60" max="100" step="1"><span id="setFovV"></span></label>
+    <div class="grp"><div class="eyebrow">Crosshair</div>
+      <div class="xhRow"><div class="seg" id="setXc"></div><div class="xhPreview"><div id="xhPreview" class="xhair-p"><i></i><i></i><i></i><i></i><b></b></div></div></div>
+      <div class="xhRow"><div class="seg" id="setXs"><button type="button" data-v="6">Small</button><button type="button" data-v="8">Medium</button><button type="button" data-v="12">Large</button></div><label class="chk"><input type="checkbox" id="setXdot">Center dot</label></div>
+    </div>
+    <div class="grp"><div class="eyebrow">Graphics</div><div class="seg" id="setQ"><button type="button" data-v="low">Low quality</button><button type="button" data-v="medium">Medium quality</button><button type="button" data-v="high">High quality</button></div>
+      <small class="info">Low: no shadows, lower resolution and fewer particles — for weak laptops and phones.</small></div>
+    <label class="chk"><input type="checkbox" id="setFps">Show FPS</label>
+  </div></div>
+  <div id="news" class="overlay screen" hidden role="dialog" aria-modal="true"><div class="panel">
+    <div class="scrHead"><div><div class="eyebrow">Version 2.1 · Season 1</div><h2>What’s new</h2></div><button class="btn ghost acClose" id="newsClose" type="button" aria-label="Close">✕</button></div>
+    <ul class="news">
+      <li><b>Ranks and experience.</b> Every finished match gives experience: 50 for playing, 150 for a win, 10 per kill. Ten ranks from Recruit to General; your rank is on the profile button.</li>
+      <li><b>Leaderboard.</b> The best players by experience, wins and kills — the Leaderboard button in the menu.</li>
+      <li><b>RL-7 rocket launcher.</b> In the Heavy section of the shop and in arms race: a slow rocket with a big blast. Mind your own feet.</li>
+      <li><b>Smarter bots.</b> They buy and throw grenades: smokes to cover a site, flashes before a peek, frags at a target in sight, fire on a planted bomb.</li>
+      <li><b>Settings.</b> Field of view, crosshair colour, size and centre dot, graphics quality for weak devices, FPS counter.</li>
+      <li><b>Phones and tablets.</b> Touch controls turn on by themselves: a stick for the left thumb, drag to look, buttons for the rest.</li>
+    </ul>
+    <div class="row"><button class="btn" id="newsOk" type="button">Play</button></div>
+  </div></div>
+  <div id="ranks" class="overlay screen" hidden role="dialog" aria-modal="true"><div class="panel">
+    <div class="scrHead"><div><div class="eyebrow">Best players</div><h2>Leaderboard</h2></div><button class="btn ghost acClose" id="ranksClose" type="button" aria-label="Close">✕</button></div>
+    <div class="seg" id="ranksBy"><button type="button" data-by="xp">Experience</button><button type="button" data-by="wins">Wins</button><button type="button" data-by="kills">Kills</button></div>
+    <div id="ranksList" class="ranksList"></div>
+    <p id="ranksMe" class="lbInfo"></p>
+  </div></div>
   <div id="account" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="accountTitle"><div class="panel">
     <div class="acHead">
       <span class="ava big" id="profileAva"></span>
@@ -374,6 +465,7 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
       </form>
     </div>
     <div id="profilePane" hidden>
+      <div class="rankBox"><div class="rankHead"><b id="rankName"></b><small id="rankLvl"></small></div><div class="xpBar"><i id="xpFill"></i></div><small id="xpText"></small></div>
       <div class="stats" id="statsBox"></div>
       <div class="avaEdit"><div class="eyebrow">Значок</div><div class="picker" id="iconPick"></div>
       <div class="eyebrow">Цвет</div><div class="picker" id="colorPick"></div></div>
@@ -393,6 +485,15 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
       <div class="row acFoot"><button class="btn ghost" id="logout" type="button">Выйти</button><button class="btn ghost" id="logoutOthers" type="button">Выйти на других устройствах</button></div>
     </div>
   </div></div>
+  <div id="touch" hidden>
+    <div id="tStick" hidden><i></i></div>
+    <button class="tb big" data-t="fire">FIRE</button>
+    <button class="tb" data-t="jump">JUMP</button><button class="tb" data-t="crouch">DUCK</button>
+    <button class="tb" data-t="alt">SCOPE</button><button class="tb" data-t="reload">RELOAD</button>
+    <button class="tb" data-t="use">USE</button><button class="tb" data-t="swap">SWAP</button>
+    <button class="tb sm" data-t="buy">BUY</button><button class="tb sm" data-t="board">SCORE</button><button class="tb sm" data-t="pause">II</button>
+  </div>
+  <div id="fpsBox" hidden></div>
   <div id="nogl" hidden>Breachline needs WebGL2. Try a recent desktop Chrome, Edge, Firefox or Safari.</div>
 </div>
 <script src="i18n.js"></script>

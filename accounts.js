@@ -139,7 +139,22 @@ const IMAGE_TYPES = { png: [0x89, 0x50, 0x4e, 0x47], jpeg: [0xff, 0xd8, 0xff], w
 const emptyStats = () => ({ matches: 0, wins: 0, kills: 0, deaths: 0 });
 // A new account gets a picked-at-random emblem so two fresh players do not look identical.
 const randomAvatar = () => ({ icon: crypto.randomInt(AVATAR_ICONS), color: crypto.randomInt(AVATAR_COLORS) });
-const publicUser = u => u ? { id: u.id, name: u.name, created: u.created, avatar: u.avatar || { icon: 0, color: 0 }, stats: u.stats || emptyStats() } : null;
+// ---------------------------------------------------------------- progression
+// Experience per match: 50 for playing, 150 for a win, 10 per kill (up to 60 kills).
+const matchXP = (won, kills) => 50 + (won ? 150 : 0) + 10 * Math.min(kills, 60);
+// Older accounts get experience for the matches they already played.
+function xpOf(u) {
+  const s = u.stats || emptyStats();
+  return Number.isFinite(s.xp) ? s.xp : s.matches * 50 + s.wins * 150 + Math.min(s.kills, s.matches * 60) * 10;
+}
+// Level L → L+1 costs 400 + 100·L experience.
+function levelOf(xp) {
+  let level = 1, need = 500, left = xp;
+  while (left >= need) { left -= need; level++; need = 400 + 100 * level; }
+  return { level, into: left, need };
+}
+const publicUser = u => u ? { id: u.id, name: u.name, created: u.created, avatar: u.avatar || { icon: 0, color: 0 },
+  stats: { ...(u.stats || emptyStats()), xp: xpOf(u) }, ...levelOf(xpOf(u)) } : null;
 
 // ---------------------------------------------------------------- abuse limits
 const buckets = new Map();
@@ -199,6 +214,15 @@ function verifyTicket(ticket, publicKey, aud) {
 }
 
 const routes = {
+  // The best players: by experience (default), wins or kills.
+  'GET /api/leaderboard': (req, res, user, ip, url) => {
+    const by = ['xp', 'wins', 'kills'].includes(url.searchParams.get('by')) ? url.searchParams.get('by') : 'xp';
+    const value = u => by === 'xp' ? xpOf(u) : (u.stats || emptyStats())[by];
+    const list = Object.values(db.users).filter(u => (u.stats?.matches || 0) > 0).sort((a, b) => value(b) - value(a) || a.name.localeCompare(b.name));
+    const top = list.slice(0, 20).map((u, i) => ({ place: i + 1, ...publicUser(u), created: undefined }));
+    const mine = user ? list.findIndex(u => u.id === user.id) : -1;
+    reply(res, 200, { by, top, me: mine >= 0 ? { place: mine + 1, ...publicUser(db.users[user.id]) } : null, players: list.length });
+  },
   'GET /api/identity': (req, res) => reply(res, 200, { publicKey: identity.publicKey }),
   'GET /api/name': (req, res, user, ip, url) => reply(res, 200, { registered: byName.has(nameKey(url.searchParams.get('n') || '')) }),
   // A ticket for one particular server (aud = that server's id), valid two minutes.
@@ -308,10 +332,12 @@ const routes = {
     const data = await readBody(req), count = n => Number.isInteger(n) && n >= 0 && n <= 500;
     if (typeof data.won !== 'boolean' || !count(data.kills) || !count(data.deaths)) throw new ApiError(400, 'bad_request');
     hit('stats:' + user.id, 1, 30000);
-    const stats = db.users[user.id].stats ||= emptyStats();
+    const u = db.users[user.id], before = levelOf(xpOf(u)).level, gained = matchXP(data.won, data.kills);
+    const stats = u.stats ||= emptyStats();
+    stats.xp = xpOf(u) + gained;
     stats.matches++; stats.wins += data.won ? 1 : 0; stats.kills += data.kills; stats.deaths += data.deaths;
     await persist();
-    reply(res, 200, { user: publicUser(db.users[user.id]) });
+    reply(res, 200, { user: publicUser(u), gained, levelUp: levelOf(stats.xp).level > before });
   },
 
   async 'GET /api/save'(req, res, user) {
