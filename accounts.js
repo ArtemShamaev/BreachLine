@@ -72,6 +72,7 @@ const ready = (async () => {
   db.users ||= {}; db.sessions ||= {};
   for (const user of Object.values(db.users)) byName.set(user.key, user.id);
   if (store.kind === 'files') await migrateLegacy();
+  await loadIdentity();
 })();
 // Do not lose the last write on Ctrl+C or a hosting restart.
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
@@ -112,16 +113,21 @@ function cookie(req, value, maxAge) {
   const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
   return `${COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure}`;
 }
+// A browser page from another server (a home server) cannot use this site's cookie; it asks for
+// the session token in the response body instead and sends it back as "Authorization: Bearer".
+const tokenMode = req => req.headers['x-breachline-client'] === 'token';
 function startSession(req, res, user) {
   const token = crypto.randomBytes(32).toString('base64url'), now = Date.now();
   db.sessions[tokenHash(token)] = { user: user.id, created: now, seen: now, until: now + SESSION_TTL };
   const own = Object.entries(db.sessions).filter(([, s]) => s.user === user.id).sort((a, b) => a[1].seen - b[1].seen);
   for (const [key] of own.slice(0, Math.max(0, own.length - MAX_SESSIONS))) delete db.sessions[key];
-  res.setHeader('Set-Cookie', cookie(req, token, SESSION_TTL / 1000));
+  if (tokenMode(req)) res.tokenForBody = token;
+  else res.setHeader('Set-Cookie', cookie(req, token, SESSION_TTL / 1000));
 }
 /** The signed-in user for a request, or null. Synchronous so the WebSocket relay can use it. */
 function userFromRequest(req) {
-  const token = readToken(req);
+  const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization || '')?.[1];
+  const token = tokenMode(req) ? bearer : readToken(req) || bearer;
   if (!token) return null;
   const key = tokenHash(token), s = db.sessions[key], now = Date.now();
   if (!s || s.until < now || !db.users[s.user]) { if (s) { delete db.sessions[key]; persist().catch(() => {}); } return null; }
@@ -165,7 +171,44 @@ async function readBody(req) {
 function requireUser(user) { if (!user) throw new ApiError(401, 'unauthorized'); return user; }
 function validSave(save) { return !!save && save.version === 1 && Number.isFinite(save.date) && Array.isArray(save.entities) && save.entities.length === 10; }
 
+// ---------------------------------------------------------------- shared identity (tickets)
+// This site signs short-lived tickets ("this browser is account X, for server Y"); home servers
+// check them with the site's public key, so one account works on every server.
+let identity = null; // { privateKey, publicKey (PEM) }
+async function loadIdentity() {
+  const raw = await store.get('identity');
+  if (raw) { const o = JSON.parse(raw.toString('utf8')); identity = { privateKey: crypto.createPrivateKey(o.private), publicKey: o.public }; return; }
+  const pair = crypto.generateKeyPairSync('ed25519');
+  const o = { private: pair.privateKey.export({ type: 'pkcs8', format: 'pem' }), public: pair.publicKey.export({ type: 'spki', format: 'pem' }) };
+  await store.put('identity', JSON.stringify(o));
+  identity = { privateKey: pair.privateKey, publicKey: o.public };
+}
+const b64u = b => Buffer.from(b).toString('base64url');
+function signTicket(user, aud) {
+  const payload = b64u(JSON.stringify({ name: user.name, id: user.id, aud, exp: Date.now() + 120000 }));
+  return payload + '.' + b64u(crypto.sign(null, Buffer.from(payload), identity.privateKey));
+}
+/** Checks a ticket against an issuer's public key; returns the account name or null. */
+function verifyTicket(ticket, publicKey, aud) {
+  try {
+    const [payload, sig] = String(ticket).split('.');
+    if (!crypto.verify(null, Buffer.from(payload), crypto.createPublicKey(publicKey), Buffer.from(sig, 'base64url'))) return null;
+    const o = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return o.aud === aud && o.exp > Date.now() && typeof o.name === 'string' ? o.name : null;
+  } catch { return null; }
+}
+
 const routes = {
+  'GET /api/identity': (req, res) => reply(res, 200, { publicKey: identity.publicKey }),
+  'GET /api/name': (req, res, user, ip, url) => reply(res, 200, { registered: byName.has(nameKey(url.searchParams.get('n') || '')) }),
+  // A ticket for one particular server (aud = that server's id), valid two minutes.
+  async 'POST /api/ticket'(req, res, user) {
+    requireUser(user);
+    const { aud } = await readBody(req);
+    if (typeof aud !== 'string' || !/^[0-9a-f-]{36}$/.test(aud)) throw new ApiError(400, 'bad_request');
+    reply(res, 200, { ticket: signTicket(user, aud) });
+  },
+
   'GET /api/me': (req, res, user) => reply(res, 200, { user: publicUser(user) }),
 
   async 'POST /api/register'(req, res, user, ip) {
@@ -179,7 +222,7 @@ const routes = {
     db.users[account.id] = account; byName.set(account.key, account.id);
     if (user) delete db.sessions[user.session];
     startSession(req, res, account); await persist();
-    reply(res, 201, { user: publicUser(account) });
+    reply(res, 201, { user: publicUser(account), token: res.tokenForBody });
   },
 
   async 'POST /api/login'(req, res, user, ip) {
@@ -191,7 +234,7 @@ const routes = {
     buckets.delete('fail:' + key);
     if (user) delete db.sessions[user.session];
     startSession(req, res, account); await persist();
-    reply(res, 200, { user: publicUser(account) });
+    reply(res, 200, { user: publicUser(account), token: res.tokenForBody });
   },
 
   async 'POST /api/logout'(req, res, user) {
@@ -218,7 +261,7 @@ const routes = {
     // A changed password must end every other session, e.g. on a stolen laptop.
     for (const [key, s] of Object.entries(db.sessions)) if (s.user === user.id) delete db.sessions[key];
     startSession(req, res, db.users[user.id]); await persist();
-    reply(res, 200, { ok: true });
+    reply(res, 200, { ok: true, token: res.tokenForBody });
   },
 
   async 'DELETE /api/account'(req, res, user, ip) {
@@ -305,7 +348,17 @@ async function sendAvatar(res, id) {
 async function handleAPI(req, res, url) {
   try {
     await ready;
-    if (req.method !== 'GET' && req.headers.origin) {
+    // Game pages served by home servers call this site's API in token mode (no cookies, so no CSRF).
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('vary', 'Origin');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, { 'access-control-allow-methods': 'GET, POST, PUT, DELETE', 'access-control-allow-headers': 'content-type, authorization, x-breachline-client', 'access-control-max-age': '600' });
+        return res.end();
+      }
+    }
+    if (req.method !== 'GET' && origin && !tokenMode(req)) {
       let host = null; try { host = new URL(req.headers.origin).host; } catch {}
       if (host !== req.headers.host) throw new ApiError(403, 'bad_origin');
     }
@@ -313,7 +366,7 @@ async function handleAPI(req, res, url) {
     if (picture && req.method === 'GET') return await sendAvatar(res, picture[1]);
     const route = routes[req.method + ' ' + url.pathname];
     if (!route) throw new ApiError(404, 'not_found');
-    await route(req, res, userFromRequest(req), clientIP(req));
+    await route(req, res, userFromRequest(req), clientIP(req), url);
   } catch (e) {
     if (!(e instanceof ApiError)) console.error('[accounts]', e);
     if (!res.headersSent) reply(res, e.status || 500, { error: e.code || 'server_error' });
@@ -324,4 +377,4 @@ async function handleAPI(req, res, url) {
 async function loadOps() { await ready; const raw = await store.get('ops'); try { return raw ? JSON.parse(raw.toString('utf8')) : []; } catch { return []; } }
 async function saveOps(list) { await store.put('ops', JSON.stringify(list)); }
 
-module.exports = { loadOps, saveOps, handleAPI, userFromRequest, nameRegistered, ready, storageKind: () => store.kind, storageInfo: () => (store.kind === 'files' ? 'файлы в ' + DIR : 'PostgreSQL') + ', аккаунтов: ' + Object.keys(db.users).length };
+module.exports = { identityPublicKey: () => identity?.publicKey, store, verifyTicket, loadOps, saveOps, handleAPI, userFromRequest, nameRegistered, ready, storageKind: () => store.kind, storageInfo: () => (store.kind === 'files' ? 'файлы в ' + DIR : 'PostgreSQL') + ', аккаунтов: ' + Object.keys(db.users).length };

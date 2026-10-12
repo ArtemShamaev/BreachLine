@@ -23,6 +23,13 @@ const HOSTED = !!process.env.PORT && !process.argv[2];
 const PROTOCOL = 'breachline-web/3', MAX_PLAYERS = 10, MAX_FRAME = 2 * 1024 * 1024;
 const SERVER_NAME = String(process.env.BREACHLINE_NAME || os.hostname()).slice(0, 40);
 const VERSION = require('./package.json').version;
+// Accounts are shared: one site (the Render deploy) keeps them and signs tickets that every server trusts.
+// A deploy on Render is that site itself; home servers use DEFAULT_AUTH. BREACHLINE_AUTH=self makes a server standalone.
+const DEFAULT_AUTH = 'https://breachline-kumw.onrender.com';
+const AUTH_SETTING = process.env.BREACHLINE_AUTH || (process.env.RENDER ? 'self' : DEFAULT_AUTH);
+const AUTH = AUTH_SETTING === 'self' ? null : AUTH_SETTING.replace(/\/+$/, '');
+let SERVER_ID = '', authKey = null;
+const remoteNames = new Map(); // name → { registered, until }: names registered on the account site
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
   '.png': 'image/png', '.css': 'text/css', '.md': 'text/markdown; charset=utf-8', '.py': 'text/plain; charset=utf-8', '.txt': 'text/plain' };
 
@@ -37,7 +44,7 @@ function lanAddresses() {
 }
 
 // ---------------------------------------------------------------- static files
-const { handleAPI, userFromRequest, nameRegistered, ready, storageInfo, storageKind, loadOps, saveOps } = require('./accounts');
+const { handleAPI, userFromRequest, nameRegistered, ready, storageInfo, storageKind, loadOps, saveOps, verifyTicket, identityPublicKey, store } = require('./accounts');
 // Public, read-only answers that other sites may ask for: the game's server list pings any server.
 function publicJSON(res, body) {
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
@@ -48,7 +55,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname.startsWith('/api/')) {
       if (req.method === 'GET' && url.pathname === '/api/ping') {
-        return publicJSON(res, { name: SERVER_NAME, version: VERSION, proto: PROTOCOL, storage: storageKind(), players: lobby.players.size, max: MAX_PLAYERS,
+        return publicJSON(res, { name: SERVER_NAME, id: SERVER_ID, auth: AUTH, version: VERSION, proto: PROTOCOL, storage: storageKind(), players: lobby.players.size, max: MAX_PLAYERS,
           state: lobby.state, settings: lobby.settings, names: [...lobby.players.values()].map(p => p.name), addresses: lanAddresses(), port: PORT });
       }
       return await handleAPI(req, res, url);
@@ -154,30 +161,44 @@ server.on('upgrade', (req, raw, head) => {
   const socket = new Socket(raw), remote = req.headers['x-forwarded-for'] || raw.remoteAddress;
   // The cookie arrives with the upgrade request, so the server knows which account really connected.
   const account = userFromRequest(req)?.name || null;
-  let me = null;
+  let me = null, greeting = null;
   const reject = (reason, detail = '') => { socket.send({ type: 'relay-error', reason, detail }); log('Отказ ' + remote + ': ' + reason); socket.close(); };
-  socket.onmessage = m => {
+  socket.onmessage = async m => {
     if (!m || typeof m !== 'object') return;
+    if (greeting) await greeting; // messages that arrive while the hello is being checked
     if (!me) {
       if (m.type !== 'relay-hello') return reject('hello_expected');
       if (m.proto !== PROTOCOL) return reject('version_mismatch');
-      const name = account || cleanName(m.name);
+      let done; greeting = new Promise(r => { done = r; });
+      try { await hello(m); } finally { done(); }
+      return;
+    }
+    handle(m);
+  };
+  async function hello(m) {
+      // signed in on this server, or holding a ticket from the account site
+      // (the account site itself accepts its own tickets: pages from home servers carry no cookie for it)
+      const key = AUTH ? authKey : identityPublicKey();
+      const ticketName = !account && key && m.ticket ? verifyTicket(m.ticket, key, SERVER_ID) : null;
+      const verified = account || ticketName;
+      const name = verified || cleanName(m.name);
       if (!name) return reject('name_required');
       // A guest cannot pose as somebody's account: registered names need that account signed in.
-      if (!account && nameRegistered(name)) return reject('name_reserved', name);
+      if (!verified && (nameRegistered(name) || await registeredRemotely(name))) return reject('name_reserved', name);
+      if (socket.open === false) return;
       if ([...lobby.players.values()].some(p => p.name.toLowerCase() === name.toLowerCase())) return reject('name_in_use', name);
       if (lobby.players.size >= MAX_PLAYERS) return reject('server_full');
-      me = { id: lobby.nextId++, socket, name, account, remote };
+      me = { id: lobby.nextId++, socket, name, account: verified, remote };
       lobby.players.set(me.id, me);
       socket.send({ type: 'joined', id: me.id, name, server: SERVER_NAME });
       log(name + ' зашёл на сервер (' + remote + ')');
       if (lobby.state === 'playing') { // late arrival: straight into the running match
-        lobby.players.get(lobby.hostId)?.socket.send({ type: 'peer-join', peer: me.id, name, account });
+        lobby.players.get(lobby.hostId)?.socket.send({ type: 'peer-join', peer: me.id, name, account: verified });
         socket.send({ type: 'role', role: 'guest', settings: lobby.settings });
       }
       broadcastLobby();
-      return;
-    }
+  }
+  function handle(m) {
     if (m.type === 'settings' && lobby.state === 'lobby' && canStart(me) && m.settings && typeof m.settings === 'object') {
       const o = m.settings, st = lobby.settings;
       if (MODES.includes(o.mode)) st.mode = o.mode;
@@ -213,6 +234,41 @@ server.on('upgrade', (req, raw, head) => {
   };
   if (head.length) { socket.buffer = head; socket.parse(); }
 });
+
+// Is this nickname an account on the account site? Cached; when the site is unreachable, allow it.
+async function registeredRemotely(name) {
+  if (!AUTH) return false;
+  const key = name.toLowerCase(), hit = remoteNames.get(key);
+  if (hit && hit.until > Date.now()) return hit.registered;
+  try {
+    const r = await fetch(AUTH + '/api/name?n=' + encodeURIComponent(name), { signal: AbortSignal.timeout(4000) });
+    const registered = !!(await r.json()).registered;
+    remoteNames.set(key, { registered, until: Date.now() + 600000 });
+    return registered;
+  } catch { return false; }
+}
+// This server's id (tickets are issued for it) and the account site's public key, cached for offline starts.
+async function setupIdentity() {
+  const raw = await store.get('server');
+  const saved = raw ? JSON.parse(raw.toString('utf8')) : {};
+  SERVER_ID = saved.id || crypto.randomUUID();
+  authKey = saved.auth === AUTH ? saved.key || null : null;
+  const save = () => store.put('server', JSON.stringify({ id: SERVER_ID, auth: AUTH, key: authKey }));
+  await save();
+  if (!AUTH) return;
+  const fetchKey = async () => {
+    try {
+      const key = (await (await fetch(AUTH + '/api/identity', { signal: AbortSignal.timeout(8000) })).json()).publicKey;
+      if (typeof key === 'string' && key.includes('PUBLIC KEY')) { const changed = key !== authKey; authKey = key; if (changed) { await save(); console.log('  аккаунты: ' + AUTH); } return true; }
+    } catch {}
+    return false;
+  };
+  // the site may be asleep (free Render): keep trying in the background
+  if (!await fetchKey()) {
+    console.log('  аккаунты: ' + AUTH + ' пока недоступен' + (authKey ? ' — использую сохранённый ключ' : ' — повторю попытку'));
+    const timer = setInterval(async () => { if (await fetchKey()) clearInterval(timer); }, 30000); timer.unref();
+  }
+}
 
 // ---------------------------------------------------------------- server console
 const HELP = `Команды сервера:
@@ -259,7 +315,7 @@ server.on('error', e => {
   console.error(e.code === 'EADDRINUSE' ? 'Порт ' + PORT + ' занят. Укажите другой: node server.js 8088' : e.message);
   process.exit(1);
 });
-ready.then(async () => {
+ready.then(setupIdentity).then(async () => {
   // admins: saved ones plus BREACHLINE_OPS (comma-separated) for hosting without a console
   ops = new Set([...(await loadOps()), ...String(process.env.BREACHLINE_OPS || '').split(',').map(cleanName).filter(Boolean)].map(n => n.toLowerCase()));
 }).then(() => server.listen(PORT, '0.0.0.0', () => {

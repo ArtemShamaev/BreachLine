@@ -5,9 +5,10 @@
  *                        Survives redeploys of a hosting container. Needs the "pg" package.
  *   otherwise          → files in BREACHLINE_DATA (default ./data): accounts.json, saves/, avatars/.
  *
- * Keys: "accounts" (users and sessions), "ops" (server admins), "save/<user id>", "avatar/<user id>".
+ * Keys: "accounts" (users and sessions), "ops" (server admins), "identity" (signing key), "server" (this server's id and its account site's key), "save/<user id>", "avatar/<user id>".
  */
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
@@ -15,7 +16,7 @@ class FileStore {
   constructor(dir) { this.dir = dir; this.kind = 'files'; }
   file(key) {
     if (key === 'accounts') return path.join(this.dir, 'accounts.json');
-    if (key === 'ops') return path.join(this.dir, 'ops.json');
+    if (['ops', 'identity', 'server'].includes(key)) return path.join(this.dir, key + '.json');
     const [kind, id] = key.split('/');
     if (!/^[0-9a-f-]{36}$/.test(id || '')) throw Error('bad storage key ' + key);
     return kind === 'save' ? path.join(this.dir, 'saves', id + '.json') : path.join(this.dir, 'avatars', id);
@@ -23,6 +24,21 @@ class FileStore {
   async init() {
     await fs.mkdir(path.join(this.dir, 'saves'), { recursive: true, mode: 0o700 });
     await fs.mkdir(path.join(this.dir, 'avatars'), { recursive: true, mode: 0o700 });
+    this.lock();
+  }
+  // Each server keeps the accounts in memory and rewrites the file, so two servers on one folder
+  // would silently undo each other's changes. Only one may use a folder at a time.
+  lock() {
+    const file = path.join(this.dir, 'server.lock');
+    try {
+      const pid = Number(fsSync.readFileSync(file, 'utf8'));
+      if (pid && pid !== process.pid) {
+        try { process.kill(pid, 0); throw Error('Папку данных ' + this.dir + ' уже использует другой запущенный сервер (PID ' + pid + '). Остановите его или укажите другую папку в BREACHLINE_DATA.'); }
+        catch (e) { if (e.code !== 'ESRCH' && e.code !== 'EPERM') throw e; if (e.code === 'EPERM') throw Error('Папку данных ' + this.dir + ' уже использует другой сервер (PID ' + pid + ').'); }
+      }
+    } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    fsSync.writeFileSync(file, String(process.pid), { mode: 0o600 });
+    process.on('exit', () => { try { if (fsSync.readFileSync(file, 'utf8') === String(process.pid)) fsSync.unlinkSync(file); } catch {} });
   }
   async get(key) {
     try { return await fs.readFile(this.file(key)); }

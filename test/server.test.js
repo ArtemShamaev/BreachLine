@@ -19,7 +19,7 @@ async function stored(key) {
   try { const r = await c.query('SELECT value FROM breachline_kv WHERE key = $1', [key]); return r.rows[0]?.value || null; } finally { await c.end(); }
 }
 async function startServer() {
-  server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir, BREACHLINE_CONSOLE: '1' }, stdio: ['pipe','pipe','pipe'] });
+  server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir, BREACHLINE_CONSOLE: '1', BREACHLINE_AUTH: 'self' }, stdio: ['pipe','pipe','pipe'] });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(Error('Server exited: '+code))); });
 }
 async function stopServer() { const s = server; server = null; if (s && s.exitCode === null) await new Promise(resolve => { s.once('exit', resolve); s.kill(); }); }
@@ -139,8 +139,8 @@ test('server exposes only game files and refuses cross-origin account changes',a
   for (const file of ['game.js','maps.js','i18n.js']) assert.equal((await fetch(base+'/'+file)).status,200);
   const r = await fetch(base+'/api/register',{method:'POST',headers:{Origin:'http://unrelated.example','content-type':'application/json'},body:'{}'}); assert.equal(r.status,403);
 });
-async function socket(cookie) {
-  const url = new URL(base), raw = net.connect(Number(url.port),'127.0.0.1');
+async function socket(cookie, target = base) {
+  const url = new URL(target), raw = net.connect(Number(url.port),'127.0.0.1');
   let buffer = Buffer.alloc(0), upgraded = false;
   const messages = [], waiters = [];
   const deliver = m => { if (waiters.length) waiters.shift()(m); else messages.push(m); };
@@ -153,7 +153,7 @@ async function socket(cookie) {
     }
   });
   await new Promise(resolve=>raw.once('connect',resolve));
-  raw.write(`GET /ws HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${base}\r\n${cookie ? 'Cookie: ' + cookie + '\r\n' : ''}Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\n\r\n`);
+  raw.write(`GET /ws HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${target}\r\n${cookie ? 'Cookie: ' + cookie + '\r\n' : ''}Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\n\r\n`);
   return { close:()=>raw.destroy(), send(m) { const p=Buffer.from(JSON.stringify(m)), mask=crypto.randomBytes(4);let h;if(p.length<126)h=Buffer.from([129,128|p.length]);else {h=Buffer.alloc(4);h[0]=129;h[1]=254;h.writeUInt16BE(p.length,2);} for(let i=0;i<p.length;i++)p[i]^=mask[i%4];raw.write(Buffer.concat([h,mask,p])); }, next(){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('WebSocket timeout')),3000);const done=m=>{clearTimeout(timer);resolve(m);};if(messages.length)done(messages.shift());else waiters.push(done);});} };
 }
 // Type a command into the server console and wait for its answer line.
@@ -208,4 +208,36 @@ test('multiplayer: server lobby, admins from the console, start, relay and late 
     net.send({ type:'start' }); await next(alice, 'role');
     net.close(); assert.equal((await next(alice, 'match-end')).reason, 'host_left');
   } finally { for (const s of [alice, net, impostor, twin, ...late]) s.close(); }
+});
+
+test('shared accounts: a home server trusts tickets from the account site', async () => {
+  const hdir = await mkdtemp(path.join(os.tmpdir(), 'breachline-home-'));
+  const hport = await new Promise(resolve => { const s = net.createServer(); s.listen(0,'127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+  const home = spawn(process.execPath, ['server.js', String(hport)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: hdir, BREACHLINE_AUTH: base, BREACHLINE_NAME: 'Home' }, stdio: ['ignore','pipe','pipe'] });
+  const hbase = 'http://127.0.0.1:' + hport, sockets = [];
+  try {
+    let hout = ''; home.stderr.on('data', d => { hout += d; });
+    await new Promise((resolve, reject) => { home.stdout.on('data', d => { hout += d; if (hout.includes('аккаунты: ' + base) && hout.includes('Breachline «Home»')) resolve(); }); home.once('exit', c => reject(Error('home exited ' + c + ': ' + hout))); setTimeout(() => reject(Error('home did not start: ' + hout)), 8000); });
+    const ping = await (await fetch(hbase + '/api/ping')).json();
+    assert.equal(ping.auth, base); assert.match(ping.id, /^[0-9a-f-]{36}$/);
+    // a game page served by the home server signs in on the account site in token mode: no cookie, CORS allowed
+    const pre = await fetch(base + '/api/login', { method:'OPTIONS', headers:{ Origin:hbase, 'Access-Control-Request-Method':'POST', 'Access-Control-Request-Headers':'content-type,x-breachline-client' } });
+    assert.equal(pre.status, 204); assert.equal(pre.headers.get('access-control-allow-origin'), hbase);
+    const hdr = { 'content-type':'application/json', Origin:hbase, 'x-breachline-client':'token' };
+    const reg = await fetch(base + '/api/register', { method:'POST', headers:hdr, body:JSON.stringify({ name:'Wanderer', password:'roaming-pass-1' }) });
+    assert.equal(reg.status, 201); assert.equal(reg.headers.get('set-cookie'), null);
+    const { token } = await reg.json(); assert.match(token, /^[\w-]{43}$/);
+    const auth = { ...hdr, Authorization:'Bearer ' + token };
+    assert.equal((await (await fetch(base + '/api/me', { headers:auth })).json()).user.name, 'Wanderer');
+    const ticket = (await (await fetch(base + '/api/ticket', { method:'POST', headers:auth, body:JSON.stringify({ aud:ping.id }) })).json()).ticket;
+    const next = async (s, type) => { for (;;) { const m = await s.next(); if (!type || m.type === type) return m; } };
+    const a = await socket(null, hbase), b = await socket(null, hbase), c = await socket(null, hbase); sockets.push(a, b, c);
+    a.send({ type:'relay-hello', proto:'breachline-web/3', name:'anything', ticket });
+    assert.equal((await next(a, 'joined')).name, 'Wanderer');
+    b.send({ type:'relay-hello', proto:'breachline-web/3', name:'wanderer' });
+    assert.equal((await next(b, 'relay-error')).reason, 'name_reserved');
+    const other = (await (await fetch(base + '/api/ticket', { method:'POST', headers:auth, body:JSON.stringify({ aud:crypto.randomUUID() }) })).json()).ticket;
+    c.send({ type:'relay-hello', proto:'breachline-web/3', name:'Plain', ticket:other });
+    assert.equal((await next(c, 'joined')).name, 'Plain'); // a ticket for another server is ignored
+  } finally { for (const s of sockets) s.close(); home.kill(); await rm(hdir, { recursive:true, force:true }); }
 });

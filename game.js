@@ -2750,17 +2750,33 @@ const API_ERRORS = {
   bad_image: 'Не удалось загрузить изображение',
 };
 const NO_SERVER = 'Нет связи с сервером игры';
-async function api(route, method = 'GET', data) {
-  let response;
+// Accounts are shared: one site keeps them for every server. When this page comes from that site the
+// session is a cookie; a page from a home server talks to the site with a token kept in this browser.
+const DEFAULT_AUTH = 'https://breachline-kumw.onrender.com';
+const ACC = { base: '', remote: false, ready: null };
+const tokenKey = () => 'bl_token_' + ACC.base;
+function accToken() { try { return localStorage.getItem(tokenKey()) || ''; } catch { return ''; } }
+function setAccToken(t) { try { t ? localStorage.setItem(tokenKey(), t) : localStorage.removeItem(tokenKey()); } catch {} }
+ACC.ready = (async () => {
   try {
-    response = await fetch('/api/' + route, { method, credentials: 'same-origin',
-      headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(data || {}) });
+    const ping = await (await fetch('/api/ping', { cache: 'no-store' })).json();
+    if (ping.auth) { ACC.base = ping.auth; ACC.remote = true; }
+  } catch { ACC.base = DEFAULT_AUTH; ACC.remote = true; } // opened as a file or from a static host
+})();
+async function api(route, method = 'GET', data) {
+  await ACC.ready;
+  let response;
+  const headers = method === 'GET' ? {} : { 'Content-Type': 'application/json' };
+  if (ACC.remote) { headers['X-Breachline-Client'] = 'token'; const t = accToken(); if (t) headers.Authorization = 'Bearer ' + t; }
+  try {
+    response = await fetch(ACC.base + '/api/' + route, { method, credentials: ACC.remote ? 'omit' : 'same-origin', headers, body: method === 'GET' ? undefined : JSON.stringify(data || {}) });
   } catch { throw Error(NO_SERVER); }
   // A static host answers /api/* with an HTML page or 404 instead of JSON.
   if (!(response.headers.get('content-type') || '').includes('application/json')) throw Error(NO_SERVER);
   const result = await response.json();
+  if (ACC.remote && result.token) setAccToken(result.token);
   if (!response.ok) {
-    if (result.error === 'unauthorized' && account) { account = null; loadAccountSave(); }
+    if (result.error === 'unauthorized' && account) { account = null; setAccToken(''); loadAccountSave(); }
     throw Object.assign(Error(API_ERRORS[result.error] || 'Ошибка сервера'), { code: result.error });
   }
   return result;
@@ -2783,7 +2799,7 @@ const emblem = (icon, color) => `<svg viewBox="0 0 40 40" aria-hidden="true"><re
 function avatarHTML(user) {
   if (!user) return `<svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" fill="#2a3032"/>${GUEST_ICON}</svg>`;
   const a = user.avatar || {};
-  return a.image ? `<img alt="" src="/api/avatar/${user.id}?v=${a.v}">` : emblem(a.icon, a.color);
+  return a.image ? `<img alt="" src="${ACC.base}/api/avatar/${user.id}?v=${a.v}">` : emblem(a.icon, a.color);
 }
 function renderPickers() {
   const a = account?.avatar || {};
@@ -2899,13 +2915,13 @@ guard($('#passwordForm'), async () => {
 guard($('#deleteForm'), async () => {
   if (!confirm(document.documentElement.lang === 'en' ? 'Delete the account and its save permanently?' : 'Удалить аккаунт и его сохранение без возможности восстановления?')) return;
   const id = account.id;
-  await api('account', 'DELETE', { password: $('#deletePassword').value });
+  await api('account', 'DELETE', { password: $('#deletePassword').value }); setAccToken('');
   try { localStorage.removeItem('bl_checkpoint_u_' + id); } catch {}
   $('#deleteForm').closest('details').open = false;
   await signedIn(null, 'Аккаунт удалён');
 });
 $('#logout').onclick = async () => {
-  try { await api('logout', 'POST'); await signedIn(null, 'Вы вышли из аккаунта'); } catch (e) { acMsg(e.message, true); }
+  try { await api('logout', 'POST'); setAccToken(''); await signedIn(null, 'Вы вышли из аккаунта'); } catch (e) { acMsg(e.message, true); }
 };
 $('#logoutOthers').onclick = async () => {
   try { const { revoked } = await api('logout-others', 'POST'); acMsg(revoked ? 'Другие устройства вышли из аккаунта' : 'Других активных входов нет'); }
@@ -3203,7 +3219,13 @@ function connectServer(base) {
   try { socket = new WebSocket(base.replace(/^http/, 'ws') + '/ws'); } catch { mpMsg(tr('The server does not answer. Check the address and that the server is running.'), true); return; }
   NET.socket = socket; NET.server = base;
   const timeout = setTimeout(() => { if (!NET.myId) { socket.close(); mpMsg(tr('The server does not answer. Check the address and that the server is running.'), true); } }, 8000);
-  socket.onopen = () => netSend({ type: 'relay-hello', proto: 'breachline-web/3', name });
+  // a ticket from the account site proves to the server which account this is
+  const ticket = (async () => {
+    const id = Object.values(MP.status).find(st => st.base === base)?.id;
+    if (!account || !id) return undefined;
+    try { return (await api('ticket', 'POST', { aud: id })).ticket; } catch { return undefined; }
+  })();
+  socket.onopen = async () => netSend({ type: 'relay-hello', proto: 'breachline-web/3', name, ticket: await ticket });
   socket.onclose = () => {
     clearTimeout(timeout);
     if (NET.socket !== socket) return;
