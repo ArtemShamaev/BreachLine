@@ -320,4 +320,8 @@ async function handleAPI(req, res, url) {
   }
 }
 
-module.exports = { handleAPI, userFromRequest, nameRegistered, ready, storageInfo: () => (store.kind === 'files' ? 'файлы в ' + DIR : 'PostgreSQL') + ', аккаунтов: ' + Object.keys(db.users).length };
+// Server administrators (ops), shared with the multiplayer relay.
+async function loadOps() { await ready; const raw = await store.get('ops'); try { return raw ? JSON.parse(raw.toString('utf8')) : []; } catch { return []; } }
+async function saveOps(list) { await store.put('ops', JSON.stringify(list)); }
+
+module.exports = { loadOps, saveOps, handleAPI, userFromRequest, nameRegistered, ready, storageKind: () => store.kind, storageInfo: () => (store.kind === 'files' ? 'файлы в ' + DIR : 'PostgreSQL') + ', аккаунтов: ' + Object.keys(db.users).length };

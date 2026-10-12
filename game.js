@@ -2656,8 +2656,14 @@ function startGame(fromClick = true) {
   $('#feed').innerHTML = ''; UI.last = {};
   FALLBACK = false; if (fromClick !== false) lockPointer();
 }
+// Leaving a network match: the host sends everybody back to the server lobby, a guest leaves the server.
 function toMenu(save = true) {
-  if (save && playing()) saveMatch(true); disconnectLAN();
+  if (save && playing()) saveMatch(true);
+  if (NET.socket && NET.role === 'host') { netSend({ type: 'end' }); backToLobby(); return; }
+  disconnectLAN();
+  leaveMatchView();
+}
+function leaveMatchView() {
   if (LOCKED) document.exitPointerLock(); hidePause(); UI.buy = false; $('#buy').hidden = true; $('#over').hidden = true; $('#hud').hidden = true; $('#menu').hidden = false;
   startAttract();
 }
@@ -2992,7 +2998,7 @@ function disconnectLAN() {
   const socket = NET.socket; NET.socket = null; NET.role = null; NET.id = null;
   if (socket) socket.close();
   for (const e of ENTS) if (e.remote) { e.bot = true; delete e.remote; aiInit(e); }
-  NET.peers.clear(); NET.verified.clear(); $('#lanState').textContent = ''; $('#saveMatch').disabled = false; $('#again').disabled = false;
+  NET.peers.clear(); NET.verified.clear(); NET.myId = null; MP.lobby = null; $('#lanState').textContent = ''; $('#saveMatch').disabled = false; $('#again').disabled = false;
 }
 function sendSnapshot(peer) { netSend({ to: peer ?? 'all', msg: { type: 'state', state: snapshot() } }); }
 // ---------- multiplayer: servers, matches and the lobby ----------
@@ -3001,13 +3007,12 @@ function sendSnapshot(peer) { netSend({ to: peer ?? 'all', msg: { type: 'state',
 const MODE_NAMES = { bomb: 'Bomb defusal', elim: 'Elimination', tdm: 'Team deathmatch', gungame: 'Arms race' };
 // Translate text that is put together in code (i18n.js translates the page itself).
 const tr = text => (window.I18N ? window.I18N.tr(text) : text);
-const MP = { servers: [], sel: 0, status: {}, lobby: null, pending: new Map(), started: false, countdown: null, since: 0, createdAt: 0, max: 10, mode: 'bomb', map: 'sandline' };
+const MP = { servers: [], sel: 0, status: {}, lobby: null, started: false, since: 0 };
 const MP_ERRORS = {
   hello_expected: 'The server did not understand the game', version_mismatch: 'Different game versions. Reload the page',
   name_required: 'Enter a nickname', name_reserved: 'This nickname belongs to an account — sign in to use it',
-  server_full: 'The server is full, try later', code_taken: 'This match code is taken', room_not_found: 'Match not found',
-  room_full: 'The match is full', not_invited: 'You are not on this match’s player list', name_in_use: 'This nickname is already in the match',
-  host_left: 'The host closed the match',
+  server_full: 'The server is full, try later', name_in_use: 'This nickname is already on the server',
+  host_left: 'The match ended: the host left.', kicked: 'You were kicked from the server', not_admin: 'Only a server admin can start the match',
 };
 const mpMsg = (text, error = false) => { const m = $('#mpMsg'); m.textContent = text; m.hidden = !text; m.classList.toggle('err', error); };
 const nickStored = () => { try { return localStorage.getItem('bl_nick') || ''; } catch { return ''; } };
@@ -3054,7 +3059,7 @@ function renderServers() {
   if (!MP.servers.length) list.innerHTML = '<p class="empty">Add a server to play over the network.</p>';
 }
 async function renderServer() {
-  const s = MP.servers[MP.sel]; if (!s) { $('#srvName').textContent = ''; $('#srvAddr').textContent = ''; $('#roomList').innerHTML = ''; return; }
+  const s = MP.servers[MP.sel]; if (!s) { $('#srvName').textContent = ''; $('#srvAddr').textContent = ''; $('#srvInfo').innerHTML = ''; return; }
   const base = serverBase(s.address), st = MP.status[base] || { wait: true };
   $('#srvName').textContent = s.official ? (st.name || s.name) : s.name;
   $('#srvAddr').textContent = base.replace(/^https?:\/\//, '');
@@ -3065,23 +3070,13 @@ async function renderServer() {
   if (st.mixed) note.innerHTML = '';
   if (st.mixed) { note.append(document.createTextNode(tr('This server has no HTTPS, so this page cannot reach it. Open the game on that server instead: '))); const a = document.createElement('a'); a.href = base; a.target = '_blank'; a.textContent = base; note.appendChild(a); }
   else if (!st.ok && !st.wait) note.textContent = tr('The server does not answer. Check the address and that the server is running.');
-  $('#mpCreateOpen').disabled = !st.ok; $('#mpJoinCode').disabled = !st.ok;
-  const rooms = $('#roomList'); rooms.innerHTML = '';
+  $('#srvJoin').disabled = !st.ok;
+  const info = $('#srvInfo'); info.innerHTML = '';
   if (!st.ok) return;
-  let list = [];
-  try { list = (await (await fetch(base + '/api/rooms', { cache: 'no-store' })).json()).rooms || []; } catch {}
-  if (MP.servers[MP.sel] !== s) return;
-  rooms.innerHTML = '';
-  if (!list.length) { rooms.innerHTML = '<p class="empty"></p>'; rooms.firstChild.textContent = tr('No open matches yet. Create one!'); return; }
-  for (const r of list) {
-    const row = document.createElement('div'); row.className = 'room';
-    const mode = tr(MODE_NAMES[r.mode] || r.mode), map = MAPS[r.map]?.name || r.map;
-    row.innerHTML = '<div><b></b><br><small></small></div><button class="btn ghost sm" type="button">Join</button>';
-    row.querySelector('b').textContent = r.name;
-    row.querySelector('small').textContent = `${mode} · ${map} · ${r.players.length}/${r.max} · ${r.state === 'playing' ? tr('in progress') : tr('in lobby')}${r.allowed.length ? ' · ' + tr('invite only') : ''} · ${r.code}`;
-    row.querySelector('button').onclick = () => mpConnect(base, 'guest', { code: r.code });
-    rooms.appendChild(row);
-  }
+  const line = (label, value) => { const p = document.createElement('div'); p.append(tr(label) + ': '); const b = document.createElement('b'); b.textContent = value; p.appendChild(b); info.appendChild(p); };
+  line('Players', `${st.players}/${st.max}` + (st.names?.length ? ' — ' + st.names.join(', ') : ''));
+  line('Now', tr(st.state === 'playing' ? 'a match is running' : 'waiting in the lobby'));
+  if (st.settings) line('Match', `${tr(MODE_NAMES[st.settings.mode] || st.settings.mode)} · ${MAPS[st.settings.map]?.name || st.settings.map}`);
 }
 function openMP() {
   loadServers(); mpMsg('');
@@ -3112,97 +3107,64 @@ $('#srvRefresh').onclick = () => { for (const s of MP.servers) pingServer(s); };
 $('#mpOpen').onclick = openMP;
 $('#mpClose').onclick = closeMP;
 $('#mpNick').oninput = () => { try { localStorage.setItem('bl_nick', cleanName($('#mpNick').value)); } catch {} };
-$('#mpJoinCode').onclick = () => { const code = $('#mpCode').value.trim(); if (code) mpConnect(serverBase(MP.servers[MP.sel].address), 'guest', { code }); };
+$('#srvJoin').onclick = () => { const s = MP.servers[MP.sel]; if (s) connectServer(serverBase(s.address)); };
 
-// ---- create a match
-function openCreate() {
-  const s = MP.servers[MP.sel];
-  $('#mpCreateWhere').textContent = (s.official ? MP.status[serverBase(s.address)]?.name || s.name : s.name);
-  $('#mcName').value = tr('Match of %s').replace('%s', myName());
-  MP.mode = CFG.mode; MP.map = CFG.map;
-  const modes = $('#mcMode'); modes.innerHTML = '';
-  for (const k of ['bomb', 'elim', 'tdm', 'gungame']) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = MODE_NAMES[k]; b.className = MP.mode === k ? 'on' : '';
-    b.onclick = () => { MP.mode = k; modes.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
-    modes.appendChild(b);
-  }
-  $('#mcMap').innerHTML = Object.entries(MAPS).map(([k, m]) => `<option value="${k}"${k === MP.map ? ' selected' : ''}>${m.name}</option>`).join('');
-  const maxes = $('#mcMax'); maxes.innerHTML = '';
-  for (const n of [2, 4, 6, 8, 10]) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = n; b.className = MP.max === n ? 'on' : '';
-    b.onclick = () => { MP.max = n; maxes.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); createHint(); };
-    maxes.appendChild(b);
-  }
-  createHint();
-  $('#mp').hidden = true; $('#mpCreate').hidden = false;
+// ---- the server lobby: everyone waits here; an admin picks the match settings and starts it
+let lobbyBuilt = false;
+function buildLobbyControls() {
+  if (lobbyBuilt) return; lobbyBuilt = true;
+  const seg = (box, values, labels, key) => values.forEach((v, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = labels[i]; b.dataset.v = v;
+    b.onclick = () => sendSettings({ [key]: typeof v === 'number' ? v : String(v) });
+    box.appendChild(b);
+  });
+  seg($('#lbMode'), Object.keys(MODE_NAMES), Object.values(MODE_NAMES), 'mode');
+  seg($('#lbTarget'), [5, 8], ['5', '8'], 'target');
+  seg($('#lbDiff'), ['easy', 'normal', 'hard'], ['Easy', 'Normal', 'Hard'], 'diff');
+  $('#lbMap').innerHTML = Object.entries(MAPS).map(([k, m]) => `<option value="${k}">${m.name}</option>`).join('');
+  $('#lbMap').onchange = () => sendSettings({ map: $('#lbMap').value });
 }
-function allowedList() { return [...new Set($('#mcAllowed').value.split(/[\n,;]+/).map(n => n.trim()).filter(Boolean).map(cleanName))].slice(0, 9); }
-function createHint() {
-  const names = allowedList();
-  $('#mcMax').hidden = names.length > 0; // with an invite list the places are the invited players plus you
-  $('#mcHint').textContent = names.length
-    ? tr('Only these players can join; the match starts by itself once all %d are in.').replace('%d', names.length)
-    : tr('Anyone with the code can join; the match starts by itself when all %d places are taken.').replace('%d', MP.max);
-}
-$('#mcAllowed').oninput = createHint;
-$('#mpCreateOpen').onclick = openCreate;
-$('#mcBack').onclick = () => { $('#mpCreate').hidden = true; $('#mp').hidden = false; };
-$('#mpCreateForm').onsubmit = ev => {
-  ev.preventDefault();
-  const allowed = allowedList();
-  CFG.mode = MP.mode; CFG.map = $('#mcMap').value; store.set('mode', CFG.mode); store.set('map', CFG.map); menuInit();
-  const max = allowed.length ? allowed.length + 1 : MP.max; // invited players plus you
-  mpConnect(serverBase(MP.servers[MP.sel].address), 'host', { match: { name: cleanName($('#mcName').value) || myName(), mode: CFG.mode, map: CFG.map, target: CFG.target, max, allowed } });
-};
-
-// ---- lobby ("searching for players")
-function showLobby() { $('#mp').hidden = true; $('#mpCreate').hidden = true; $('#lobby').hidden = false; MP.since = performance.now(); renderLobby(); }
-function hideLobby() { $('#lobby').hidden = true; clearCountdown(); }
-function clearCountdown() { if (MP.countdown) { clearInterval(MP.countdown); MP.countdown = null; } }
+function sendSettings(change) { if (MP.lobby) netSend({ type: 'settings', settings: { ...MP.lobby.settings, ...change } }); }
+function me() { return MP.lobby?.players.find(p => p.id === NET.myId); }
+function showLobby() { buildLobbyControls(); closeMP(); $('#lobby').hidden = false; renderLobby(); }
+function hideLobby() { $('#lobby').hidden = true; }
 function renderLobby() {
-  const r = MP.lobby, host = NET.role === 'host';
-  $('#lbTitle').textContent = tr(r && r.state === 'playing' ? 'Joining the match…' : host ? 'Searching for players' : 'Waiting for the host');
-  $('#lbStart').hidden = !host; $('#lbLeave').textContent = tr(host ? 'Cancel' : 'Leave');
-  if (!r) return;
-  $('#lbMode').textContent = `${tr(MODE_NAMES[r.mode] || r.mode)} · ${MAPS[r.map]?.name || r.map} · ${r.name}`;
-  $('#lbCode').textContent = r.code; $('#lbServer').textContent = (NET.server || '').replace(/^https?:\/\//, '');
+  const L = MP.lobby; if (!L) return;
+  const mine = me(), leader = !!mine?.leader;
+  $('#lbServer').textContent = L.server + ' · ' + (NET.server || '').replace(/^https?:\/\//, '');
+  $('#lbTitle').textContent = tr(L.state === 'playing' ? 'Match in progress' : 'Server lobby');
   const slots = $('#lbSlots'); slots.innerHTML = '';
-  const waiting = r.allowed.filter(n => !r.players.some(p => p.name.toLowerCase() === n.toLowerCase()));
-  for (let i = 0; i < r.max; i++) {
-    const p = r.players[i], d = document.createElement('div');
-    d.className = 'slot ' + (p ? 'in' + (p.host ? ' host' : '') : 'wait');
+  for (const p of L.players) {
+    const d = document.createElement('div'); d.className = 'slot in' + (p.op || p.leader ? ' host' : '');
     d.innerHTML = '<b></b><small></small>';
-    d.querySelector('b').textContent = p ? p.name : (waiting[i - r.players.length] || '—');
-    d.querySelector('small').textContent = tr(p ? (p.host ? 'host' : 'ready') : 'waiting');
+    d.querySelector('b').textContent = (p.op ? '★ ' : '') + p.name;
+    d.querySelector('small').textContent = tr(p.id === L.hostId && L.state === 'playing' ? 'leads the match' : p.op ? 'admin' : p.leader ? 'can start' : p.id === NET.myId ? 'you' : 'ready');
     slots.appendChild(d);
   }
-  const full = r.allowed.length ? !waiting.length : r.players.length >= r.max;
-  if (host && r.state === 'lobby' && full && !MP.countdown) {
-    let left = 5;
-    const tick = () => { $('#lbInfo').textContent = tr('Everyone is here — starting in %d').replace('%d', left); if (left-- <= 0) { clearCountdown(); mpStart(false); } };
-    tick(); MP.countdown = setInterval(tick, 1000);
-  } else if (!full) {
-    clearCountdown();
-    $('#lbInfo').textContent = host ? tr('Players: %d of %d. You can start now: bots take the empty places.').replace('%d', r.players.length).replace('%d', r.max) : tr('Players: %d of %d').replace('%d', r.players.length).replace('%d', r.max);
-  }
+  const st = L.settings;
+  $('#lbSettings').classList.toggle('locked', !leader || L.state !== 'lobby');
+  for (const [box, v] of [['#lbMode', st.mode], ['#lbTarget', st.target], ['#lbDiff', st.diff]]) $(box).querySelectorAll('button').forEach(b => b.classList.toggle('on', String(v) === b.dataset.v));
+  $('#lbMap').value = st.map;
+  $('#lbStart').hidden = !leader || L.state !== 'lobby';
+  const admins = L.players.filter(p => p.op).map(p => p.name);
+  $('#lbInfo').textContent = L.state === 'playing' ? tr('A match is running — joining it…')
+    : leader ? tr(L.opsSet ? 'You are an admin: pick the mode and map, then start the match.' : 'The server has no admins yet, so you can start: pick the mode and map, then start the match.')
+    : admins.length ? tr('Waiting for an admin to start: %s').replace('%s', admins.join(', '))
+    : tr(L.opsSet ? 'Waiting for an admin to join and start the match.' : 'Waiting for the first player to start the match.');
 }
 setInterval(() => { if (!$('#lobby').hidden) { const s = Math.floor((performance.now() - MP.since) / 1000); $('#lbTime').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); } }, 500);
-$('#lbCopy').onclick = () => { try { navigator.clipboard.writeText($('#lbCode').textContent); } catch {} };
-$('#lbStart').onclick = () => mpStart(true);
+$('#lbStart').onclick = () => { audioInit(); netSend({ type: 'start' }); };
 $('#lbLeave').onclick = () => { disconnectLAN(); hideLobby(); openMP(); };
 
-// The host starts the game and lets in everyone who is waiting; later arrivals join the running match.
-function mpStart(fromClick) {
-  if (NET.role !== 'host' || MP.started) return;
-  MP.started = true; clearCountdown();
-  netSend({ type: 'start' });
-  hideLobby();
-  startGame(fromClick);
-  for (const [from, command] of MP.pending) admitPeer(from, command);
-  MP.pending.clear();
-  const where = (NET.server || '').replace(/^https?:\/\//, '');
-  $('#lanState').textContent = `${tr('Match')} ${NET.code} · ${where}`;
-  if (!fromClick) { showPause(); $('#pauseStatus').textContent = tr('The match has started. Press Resume.'); }
+// Back from a match to the lobby without leaving the server.
+function backToLobby(reason) {
+  const wasPlaying = playing();
+  for (const e of ENTS) if (e.remote) { e.bot = true; delete e.remote; aiInit(e); }
+  NET.role = null; NET.id = null; NET.peers.clear(); MP.started = false;
+  $('#lanState').textContent = ''; $('#saveMatch').disabled = false; $('#again').disabled = false;
+  if (wasPlaying) leaveMatchView();
+  showLobby();
+  if (reason === 'host_left') $('#lbInfo').textContent = tr('The match ended: the host left.');
 }
 function admitPeer(from, command) {
   const e = ENTS.find(e => e.bot && e.team === command.team) || ENTS.find(e => e.bot);
@@ -3211,51 +3173,73 @@ function admitPeer(from, command) {
   NET.peers.set(from, { id: e.id, name: e.name, input: {}, mouse: {}, at: performance.now() });
   netSend({ to: from, msg: { type: 'welcome', id: e.id, state: snapshot() } });
 }
-function mpConnect(base, role, opts) {
+function applyLobbySettings(st) {
+  if (MODE_NAMES[st.mode]) CFG.mode = st.mode;
+  if (MAPS[st.map]) CFG.map = st.map;
+  if ([5, 8].includes(st.target)) CFG.target = st.target;
+  if (DIFF[st.diff]) CFG.diff = st.diff;
+}
+const matchLabel = () => `${MP.lobby?.server || ''} · ${(NET.server || '').replace(/^https?:\/\//, '')}`;
+function connectServer(base) {
   mpMsg('');
   if (mixedBlocked(base)) { mpMsg(tr('This server has no HTTPS, so this page cannot reach it. Open the game on that server instead: ') + base, true); return; }
   const name = myName();
   if (!name) { mpMsg(tr(MP_ERRORS.name_required), true); return; }
   disconnectLAN();
-  MP.started = false; MP.pending.clear(); MP.lobby = null;
+  MP.started = false; MP.lobby = null;
   let socket;
   try { socket = new WebSocket(base.replace(/^http/, 'ws') + '/ws'); } catch { mpMsg(tr('The server does not answer. Check the address and that the server is running.'), true); return; }
   NET.socket = socket; NET.server = base;
-  const timeout = setTimeout(() => { if (!NET.role) { socket.close(); mpMsg(tr('The server does not answer. Check the address and that the server is running.'), true); } }, 8000);
-  socket.onopen = () => netSend({ type: 'relay-hello', proto: 'breachline-web/2', role, name, room: opts.code, match: opts.match });
+  const timeout = setTimeout(() => { if (!NET.myId) { socket.close(); mpMsg(tr('The server does not answer. Check the address and that the server is running.'), true); } }, 8000);
+  socket.onopen = () => netSend({ type: 'relay-hello', proto: 'breachline-web/3', name });
   socket.onclose = () => {
     clearTimeout(timeout);
     if (NET.socket !== socket) return;
-    const guest = NET.role === 'guest'; disconnectLAN(); hideLobby();
-    if (guest && playing()) { toMenu(false); status(tr('Connection to host closed')); }
-    else if (!playing()) { if ($('#mp').hidden) openMP(); mpMsg(tr('Connection to host closed'), true); }
+    const inGame = playing(); disconnectLAN(); hideLobby();
+    if (inGame) toMenu(false);
+    openMP(); mpMsg(tr('Disconnected from the server.'), true);
   };
   socket.onmessage = ev => {
     try {
       const m = JSON.parse(ev.data);
       if (m.type === 'relay-error') {
         socket.onclose = null; clearTimeout(timeout);
-        const was = NET.role; disconnectLAN(); hideLobby();
-        const text = tr(MP_ERRORS[m.reason] || m.reason);
-        if (was === 'guest' && playing()) { toMenu(false); status(text); } else { openMP(); mpMsg(text, true); }
+        const inGame = playing(); disconnectLAN(); hideLobby();
+        if (inGame) toMenu(false);
+        openMP(); mpMsg(tr(MP_ERRORS[m.reason] || m.reason), true);
         return;
       }
-      if (m.type === 'relay-ok') {
-        clearTimeout(timeout); NET.role = role; NET.id = m.id; NET.code = m.code; NET.tick = 0;
-        if (role === 'guest') { $('#saveMatch').disabled = true; $('#again').disabled = true; netSend({ type: 'join', name: m.name, team: CFG.team }); }
-        showLobby(); return;
+      if (m.type === 'joined') { clearTimeout(timeout); NET.myId = m.id; MP.since = performance.now(); showLobby(); return; }
+      if (m.type === 'lobby') { MP.lobby = m.lobby; if (!$('#lobby').hidden) renderLobby(); return; }
+      if (m.type === 'notice') { $('#lbInfo').textContent = tr(MP_ERRORS[m.reason] || m.reason); return; }
+      if (m.type === 'match-end') { if (NET.role || playing()) backToLobby(m.reason); return; }
+      if (m.type === 'role') {
+        applyLobbySettings(m.settings || {});
+        NET.tick = 0;
+        if (m.role === 'host') {
+          NET.role = 'host'; MP.started = true;
+          for (const p of m.peers || []) NET.verified.set(p.peer, p.name);
+          hideLobby();
+          startGame(false);
+          showPause(); $('#pauseStatus').textContent = tr('The match has started. Press Resume.');
+        } else {
+          NET.role = 'guest'; NET.id = null;
+          $('#saveMatch').disabled = true; $('#again').disabled = true;
+          netSend({ type: 'join', name: me()?.name || name, team: CFG.team });
+          renderLobby(); $('#lbInfo').textContent = tr('Connecting to match…');
+        }
+        $('#lanState').textContent = matchLabel();
+        return;
       }
-      if (m.type === 'lobby') { MP.lobby = m.room; if (!$('#lobby').hidden) renderLobby(); return; }
       if (NET.role === 'host') {
         if (m.type === 'peer-join') { NET.verified.set(m.peer, m.name || m.account || null); return; }
         if (m.type === 'peer-leave') {
-          MP.pending.delete(m.peer);
           const peer = NET.peers.get(m.peer); if (peer) { const e = ENTS[peer.id]; e.bot = true; delete e.remote; e.name = 'Bot ' + e.id; aiInit(e); aiPlanRound(); }
           NET.peers.delete(m.peer); NET.verified.delete(m.peer); return;
         }
         if (!m.msg) return;
         const command = m.msg;
-        if (command.type === 'join' && !NET.peers.has(m.from)) { if (MP.started) admitPeer(m.from, command); else MP.pending.set(m.from, command); return; }
+        if (command.type === 'join' && !NET.peers.has(m.from)) { admitPeer(m.from, command); return; }
         const peer = NET.peers.get(m.from); if (!peer) return;
         const e = ENTS[peer.id];
         if (command.type === 'input') {
@@ -3277,7 +3261,6 @@ function mpConnect(base, role, opts) {
         if (m.type === 'welcome') {
           NET.id = m.id; hideLobby(); closeMP(); applySnapshot(m.state, m.id, true); showPause();
           $('#pauseStatus').textContent = tr('You are in a network match. Press Resume.');
-          $('#lanState').textContent = `${tr('Match')} ${NET.code} · ${(NET.server || '').replace(/^https?:\/\//, '')}`;
         }
         if (m.type === 'state' && PLAYER && !GAME.attract) { applySnapshot(m.state, NET.id); if (UI.buy) renderBuy(); }
       }
@@ -3314,7 +3297,7 @@ setInterval(() => {
 }, 20);
 (async () => { try { account = (await api('me')).user; } catch { serverUp = false; } await loadAccountSave(); })();
 
-window.__game = { VM, damage, endRound, uiMatchOver, updateCamera, GAME, get ENTS() { return ENTS; }, get PLAYER() { return PLAYER; }, CAM, NET, snapshot, applySnapshot, saveMatch, mpConnect, mpStart, openMP, disconnectLAN, toMenu, startGame, KEYS, MOUSE, CFG, step, fire, setSlot, doBuy, G };
+window.__game = { VM, damage, endRound, uiMatchOver, updateCamera, GAME, get ENTS() { return ENTS; }, get PLAYER() { return PLAYER; }, CAM, NET, snapshot, applySnapshot, saveMatch, connectServer, openMP, disconnectLAN, toMenu, startGame, KEYS, MOUSE, CFG, step, fire, setSlot, doBuy, G };
 { let booted = false; const go = () => { if (!booted) { booted = true; boot(); } }; if (document.fonts && document.fonts.ready) document.fonts.ready.then(go); setTimeout(go, 1500); }
 
 })();

@@ -185,9 +185,9 @@ input[type=range]{accent-color:var(--sand);width:100%}
 .room{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px;background:rgba(255,255,255,.05);padding:8px 12px}
 .room b{font-size:16px}.room small{color:var(--dim);font-size:13px}
 .empty{color:var(--dim);font-size:14px;padding:8px 0}
-#srvDialog .panel,#mpCreate .panel{width:min(560px,100%)}
-#srvForm,#mpCreateForm{display:flex;flex-direction:column;gap:8px}
-#srvForm .row .btn,#mpCreateForm .row .btn,#lobby .row .btn{font-size:16px;padding:8px 18px}
+#srvDialog .panel{width:min(560px,100%)}
+#srvForm{display:flex;flex-direction:column;gap:8px}
+#srvForm .row .btn,#lobby .row .btn{font-size:16px;padding:8px 18px}
 textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;border-radius:4px;width:100%;box-sizing:border-box;margin:6px 0;font:inherit;resize:vertical}
 .mcPort{color:var(--dim);border-left:3px solid var(--line);padding-left:10px}
 .lobby .panel{width:min(720px,100%);align-items:center;text-align:center;gap:12px;overflow:hidden;position:relative}
@@ -200,6 +200,12 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
 .slot.in{border-bottom:2px solid var(--good)}.slot.host{border-bottom-color:var(--sand)}
 .slot.wait{opacity:.55;animation:pulse 1.6s infinite}
 .lbInfo{margin:0;color:var(--dim);min-height:1.4em}
+.lbSettings{width:100%;display:flex;flex-direction:column;gap:10px;text-align:left}
+.lbSettings.locked{opacity:.6;pointer-events:none}
+.lbRow{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:end}
+.slot .badge{color:var(--sand)}
+.srvInfo{display:flex;flex-direction:column;gap:6px;font-size:15px;color:var(--dim)}.srvInfo b{color:var(--text)}
+@media (max-width:760px){.lbRow{grid-template-columns:1fr}}
 .radar-pulse{position:relative;width:90px;height:90px}
 .radar-pulse i{position:absolute;inset:0;border:2px solid var(--sand);border-radius:50%;opacity:0;animation:ping 2.4s infinite}
 .radar-pulse i:nth-child(2){animation-delay:.8s}.radar-pulse i:nth-child(3){animation-delay:1.6s}
@@ -324,10 +330,8 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
       <section class="mpServer">
         <div class="srvHead"><div><b id="srvName"></b><small id="srvAddr"></small></div><span id="srvState" class="srvState"></span></div>
         <div id="srvNote" class="acNote" hidden></div>
-        <div class="row"><button class="btn" id="mpCreateOpen" type="button">Create match</button></div>
-        <div class="eyebrow">Open matches</div>
-        <div id="roomList" class="roomList"></div>
-        <div class="row"><label>Match code<input id="mpCode" maxlength="16" autocomplete="off"></label><button class="btn ghost sm" id="mpJoinCode" type="button">Join</button></div>
+        <div id="srvInfo" class="srvInfo"></div>
+        <div class="row"><button class="btn" id="srvJoin" type="button">Connect</button></div>
       </section>
     </div>
   </div></div>
@@ -338,26 +342,18 @@ textarea{background:#171e20;color:#eee;border:1px solid #52605e;padding:8px;bord
     <small>Address and port of a Breachline server: an IP with a port, or a tunnel link from Openport, playit and the like.</small>
     <div class="row"><button class="btn" type="submit">Save</button><button class="btn ghost" id="srvDel" type="button" hidden>Delete</button><button class="btn ghost" id="srvCancel" type="button">Cancel</button></div>
   </form></div></div>
-  <div id="mpCreate" class="overlay screen" hidden role="dialog" aria-modal="true"><div class="panel"><form id="mpCreateForm">
-    <div class="scrHead"><div><div class="eyebrow" id="mpCreateWhere"></div><h2>Create match</h2></div></div>
-    <label>Match name<input id="mcName" maxlength="24"></label>
-    <div class="grp"><div class="eyebrow">Mode</div><div class="seg modes" id="mcMode"></div></div>
-    <label>Map<select id="mcMap"></select></label>
-    <div class="grp"><div class="eyebrow">Players, you included</div><div class="seg" id="mcMax"></div></div>
-    <label>Allowed nicknames <small>(optional, one per line or separated by commas)</small><textarea id="mcAllowed" rows="3" maxlength="300"></textarea></label>
-    <small id="mcHint"></small>
-    <small class="mcPort">The port belongs to the server: your own server asks for it when it starts (see start-server in the game folder); then forward it with Openport or a similar tool and give friends the address.</small>
-    <div class="row"><button class="btn" type="submit">Confirm and create</button><button class="btn ghost" id="mcBack" type="button">Back</button></div>
-  </form></div></div>
   <div id="lobby" class="overlay screen lobby" hidden role="dialog" aria-modal="true"><div class="panel">
     <div class="radar-pulse" aria-hidden="true"><i></i><i></i><i></i></div>
-    <div class="eyebrow" id="lbMode"></div>
-    <h2 id="lbTitle">Searching for players</h2>
+    <div class="eyebrow" id="lbServer"></div>
+    <h2 id="lbTitle">Server lobby</h2>
     <div class="lbTime" id="lbTime">0:00</div>
-    <div class="row lbCode"><span class="eyebrow">Match code</span><b id="lbCode"></b><button class="btn ghost sm" id="lbCopy" type="button">Copy</button><small id="lbServer"></small></div>
     <div id="lbSlots" class="lbSlots"></div>
+    <div id="lbSettings" class="lbSettings">
+      <div class="grp"><div class="eyebrow">Mode</div><div class="seg modes" id="lbMode"></div></div>
+      <div class="lbRow"><label>Map<select id="lbMap"></select></label><div class="grp"><div class="eyebrow">Match length</div><div class="seg" id="lbTarget"></div></div><div class="grp"><div class="eyebrow">Bot skill</div><div class="seg" id="lbDiff"></div></div></div>
+    </div>
     <p id="lbInfo" class="lbInfo"></p>
-    <div class="row"><button class="btn" id="lbStart" type="button">Start now</button><button class="btn ghost" id="lbLeave" type="button">Cancel</button></div>
+    <div class="row"><button class="btn" id="lbStart" type="button">Start match</button><button class="btn ghost" id="lbLeave" type="button">Leave server</button></div>
   </div></div>
   <div id="account" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="accountTitle"><div class="panel">
     <div class="acHead">

@@ -3,8 +3,10 @@
  *
  *   node server.js [port]        (default 8088; also BREACHLINE_PORT or PORT on hosting)
  *
- * Multiplayer: a host's browser opens a match (a lobby with a code); guests join it, the server
- * relays messages between them and the host simulates the game. Any number of matches at once.
+ * Multiplayer works like a Minecraft server: players connect and wait in the server's lobby; a server
+ * admin (op) picks mode and map and starts the match. The admin's browser then simulates the game and
+ * the server relays messages between it and everyone else. Admins are set in the server console:
+ * type "op <nickname>" (see "help"), or list them in BREACHLINE_OPS on hosting without a console.
  * Accounts live in files or PostgreSQL (see storage.js). The relay needs no npm packages.
  */
 'use strict';
@@ -18,7 +20,7 @@ const ROOT = __dirname;
 const PORT = Number(process.argv[2] || process.env.BREACHLINE_PORT || process.env.PORT || 8088);
 // On a cloud host the container addresses mean nothing to players.
 const HOSTED = !!process.env.PORT && !process.argv[2];
-const PROTOCOL = 'breachline-web/2', MAX_PLAYERS = 10, MAX_FRAME = 2 * 1024 * 1024;
+const PROTOCOL = 'breachline-web/3', MAX_PLAYERS = 10, MAX_FRAME = 2 * 1024 * 1024;
 const SERVER_NAME = String(process.env.BREACHLINE_NAME || os.hostname()).slice(0, 40);
 const VERSION = require('./package.json').version;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
@@ -35,7 +37,7 @@ function lanAddresses() {
 }
 
 // ---------------------------------------------------------------- static files
-const { handleAPI, userFromRequest, nameRegistered, ready, storageInfo } = require('./accounts');
+const { handleAPI, userFromRequest, nameRegistered, ready, storageInfo, storageKind, loadOps, saveOps } = require('./accounts');
 // Public, read-only answers that other sites may ask for: the game's server list pings any server.
 function publicJSON(res, body) {
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
@@ -46,10 +48,9 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname.startsWith('/api/')) {
       if (req.method === 'GET' && url.pathname === '/api/ping') {
-        let players = 0; for (const r of rooms.values()) players += 1 + r.guests.size;
-        return publicJSON(res, { name: SERVER_NAME, version: VERSION, proto: PROTOCOL, players, matches: rooms.size, addresses: lanAddresses(), port: PORT });
+        return publicJSON(res, { name: SERVER_NAME, version: VERSION, proto: PROTOCOL, storage: storageKind(), players: lobby.players.size, max: MAX_PLAYERS,
+          state: lobby.state, settings: lobby.settings, names: [...lobby.players.values()].map(p => p.name), addresses: lanAddresses(), port: PORT });
       }
-      if (req.method === 'GET' && url.pathname === '/api/rooms') return publicJSON(res, { rooms: [...rooms.values()].map(roomInfo) });
       return await handleAPI(req, res, url);
     }
     const allowed = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js', '/maps.js': 'maps.js', '/i18n.js': 'i18n.js' };
@@ -116,100 +117,156 @@ class Socket {
   closed() { if (!this.open) return; this.open = false; this.onclose(); }
 }
 
-// ---------------------------------------------------------------- relay (matches)
-// code → { code, name, host, hostName, mode, map, target, max, allowed, state, guests: Map(id → {socket, name}), nextId, created }
-const rooms = new Map();
-const MAX_ROOMS = 200;
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to misread
+// ---------------------------------------------------------------- the server lobby and the match relay
+// One lobby per server. state "lobby": everyone waits; state "playing": hostId's browser runs the match.
+const lobby = { players: new Map(), nextId: 1, state: 'lobby', hostId: 0, settings: { mode: 'bomb', map: 'sandline', target: 8, diff: 'normal' } };
+const MODES = ['bomb', 'elim', 'tdm', 'gungame'], DIFFS = ['easy', 'normal', 'hard'];
+let ops = new Set();   // lower-case nicknames of admins
 function log(text) { console.log('[MP] ' + text); }
 function cleanName(n) { return String(n || '').normalize('NFKC').replace(/[^\p{L}\p{N}_ -]/gu, '').trim().slice(0, 24); }
-function newCode() {
-  for (;;) { let c = ''; for (let i = 0; i < 5; i++) c += CODE_CHARS[crypto.randomInt(CODE_CHARS.length)]; if (!rooms.has(c)) return c; }
+const isOp = name => ops.has(name.toLowerCase());
+// Until the first "op" command anybody may start (otherwise a fresh server could never play): the first in the lobby.
+function canStart(p) { return ops.size ? isOp(p.name) : [...lobby.players.keys()][0] === p.id; }
+function lobbyInfo() {
+  return { state: lobby.state, settings: lobby.settings, hostId: lobby.hostId, server: SERVER_NAME, opsSet: ops.size > 0,
+    players: [...lobby.players.values()].map(p => ({ id: p.id, name: p.name, op: isOp(p.name), leader: canStart(p) })) };
 }
-function roomInfo(r) {
-  return { code: r.code, name: r.name, host: r.hostName, mode: r.mode, map: r.map, target: r.target, max: r.max, allowed: r.allowed,
-    state: r.state, players: [{ id: 0, name: r.hostName, host: true }, ...[...r.guests].map(([id, g]) => ({ id, name: g.name }))], created: r.created };
+function broadcastLobby() { const msg = { type: 'lobby', lobby: lobbyInfo() }; for (const p of lobby.players.values()) p.socket.send(msg); }
+function endMatch(reason) {
+  if (lobby.state !== 'playing') return;
+  lobby.state = 'lobby'; lobby.hostId = 0;
+  for (const p of lobby.players.values()) p.socket.send({ type: 'match-end', reason });
+  broadcastLobby(); log('Матч окончен' + (reason ? ' (' + reason + ')' : ''));
 }
-function broadcastLobby(r) {
-  const msg = { type: 'lobby', room: roomInfo(r) };
-  r.host.send(msg);
-  for (const g of r.guests.values()) g.socket.send(msg);
+function startMatch(host) {
+  lobby.state = 'playing'; lobby.hostId = host.id;
+  const peers = [...lobby.players.values()].filter(p => p !== host).map(p => ({ peer: p.id, name: p.name, account: p.account }));
+  host.socket.send({ type: 'role', role: 'host', settings: lobby.settings, peers });
+  for (const p of lobby.players.values()) if (p !== host) p.socket.send({ type: 'role', role: 'guest', settings: lobby.settings });
+  broadcastLobby(); log('Матч начал ' + host.name + ': ' + lobby.settings.mode + ' / ' + lobby.settings.map);
 }
 server.on('upgrade', (req, raw, head) => {
-  // Any site may connect (the game lists other people's servers). Account cookies are SameSite=Strict,
-  // so a cross-site page cannot borrow somebody's account here.
+  // Any site may connect (players add servers by address). Account cookies are SameSite=Strict,
+  // so a page from another site cannot borrow somebody's account here.
   if (new URL(req.url, 'http://localhost').pathname !== '/ws' || !req.headers['sec-websocket-key']) { raw.destroy(); return; }
   const accept = crypto.createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   raw.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
   const socket = new Socket(raw), remote = req.headers['x-forwarded-for'] || raw.remoteAddress;
   // The cookie arrives with the upgrade request, so the server knows which account really connected.
   const account = userFromRequest(req)?.name || null;
-  let role = null, id = -1, room = null, code = '', name = '';
+  let me = null;
   const reject = (reason, detail = '') => { socket.send({ type: 'relay-error', reason, detail }); log('Отказ ' + remote + ': ' + reason); socket.close(); };
   socket.onmessage = m => {
-    if (!role) {
-      if (!m || m.type !== 'relay-hello') return reject('hello_expected');
+    if (!m || typeof m !== 'object') return;
+    if (!me) {
+      if (m.type !== 'relay-hello') return reject('hello_expected');
       if (m.proto !== PROTOCOL) return reject('version_mismatch');
-      name = account || cleanName(m.name);
+      const name = account || cleanName(m.name);
       if (!name) return reject('name_required');
       // A guest cannot pose as somebody's account: registered names need that account signed in.
       if (!account && nameRegistered(name)) return reject('name_reserved', name);
-      if (m.role === 'host') {
-        if (rooms.size >= MAX_ROOMS) return reject('server_full');
-        const o = m.match && typeof m.match === 'object' ? m.match : {};
-        code = typeof m.room === 'string' && /^[A-Za-z0-9]{1,16}$/.test(m.room) ? m.room.toUpperCase() : newCode();
-        if (rooms.has(code)) return reject('code_taken', code);
-        const allowed = Array.isArray(o.allowed) ? [...new Set(o.allowed.map(cleanName).filter(Boolean))].slice(0, 9) : [];
-        room = { code, host: socket, hostName: name, name: cleanName(o.name) || name, mode: String(o.mode || 'bomb').slice(0, 16), map: String(o.map || '').slice(0, 24),
-          target: Number(o.target) || 8, max: Math.max(2, Math.min(MAX_PLAYERS, Number(o.max) || MAX_PLAYERS)), allowed, state: 'lobby', guests: new Map(), nextId: 1, created: Date.now() };
-        rooms.set(code, room);
-        role = 'host'; id = 0;
-        socket.send({ type: 'relay-ok', role, code, name, addresses: lanAddresses(), port: PORT }); broadcastLobby(room);
-        log('Матч ' + code + ' создан: ' + name + ' (' + remote + ')');
-      } else {
-        code = typeof m.room === 'string' ? m.room.trim().toUpperCase() : '';
-        room = rooms.get(code);
-        if (!room) return reject('room_not_found', code);
-        if (room.guests.size + 1 >= room.max) return reject('room_full');
-        const key = name.toLowerCase();
-        if (room.allowed.length && !room.allowed.some(a => a.toLowerCase() === key)) return reject('not_invited', name);
-        if (room.hostName.toLowerCase() === key || [...room.guests.values()].some(g => g.name.toLowerCase() === key)) return reject('name_in_use', name);
-        role = 'guest'; id = room.nextId++; room.guests.set(id, { socket, name });
-        socket.send({ type: 'relay-ok', role, id, code, name });
-        room.host.send({ type: 'peer-join', peer: id, account, name }); broadcastLobby(room);
-        log('Игрок ' + name + ' зашёл в ' + code + ' (' + remote + ')');
+      if ([...lobby.players.values()].some(p => p.name.toLowerCase() === name.toLowerCase())) return reject('name_in_use', name);
+      if (lobby.players.size >= MAX_PLAYERS) return reject('server_full');
+      me = { id: lobby.nextId++, socket, name, account, remote };
+      lobby.players.set(me.id, me);
+      socket.send({ type: 'joined', id: me.id, name, server: SERVER_NAME });
+      log(name + ' зашёл на сервер (' + remote + ')');
+      if (lobby.state === 'playing') { // late arrival: straight into the running match
+        lobby.players.get(lobby.hostId)?.socket.send({ type: 'peer-join', peer: me.id, name, account });
+        socket.send({ type: 'role', role: 'guest', settings: lobby.settings });
       }
+      broadcastLobby();
       return;
     }
-    if (role === 'guest') { room.host.send({ from: id, msg: m }); return; }
-    // host → server: start the match / host → guests: game messages
-    if (m && m.type === 'start') { room.state = 'playing'; broadcastLobby(room); log('Матч ' + code + ' начался'); return; }
-    if (m && m.type === 'lobby-reset') { room.state = 'lobby'; broadcastLobby(room); return; }
-    if (!m || !m.msg) return;
-    if (m.to === 'all') { for (const g of room.guests.values()) g.socket.send(m.msg); }
-    else { const g = room.guests.get(m.to); if (g) g.socket.send(m.msg); }
+    if (m.type === 'settings' && lobby.state === 'lobby' && canStart(me) && m.settings && typeof m.settings === 'object') {
+      const o = m.settings, st = lobby.settings;
+      if (MODES.includes(o.mode)) st.mode = o.mode;
+      if (typeof o.map === 'string' && /^[a-z0-9]{1,24}$/.test(o.map)) st.map = o.map;
+      if ([5, 8].includes(o.target)) st.target = o.target;
+      if (DIFFS.includes(o.diff)) st.diff = o.diff;
+      broadcastLobby(); return;
+    }
+    if (m.type === 'start') {
+      if (lobby.state !== 'lobby') return;
+      if (!canStart(me)) { socket.send({ type: 'notice', reason: 'not_admin' }); return; }
+      startMatch(me); return;
+    }
+    if (lobby.state !== 'playing') return;
+    if (me.id !== lobby.hostId) { lobby.players.get(lobby.hostId)?.socket.send({ from: me.id, msg: m }); return; }
+    // the host: back to the lobby, or game messages for the others
+    if (m.type === 'end') { endMatch(''); return; }
+    if (!m.msg) return;
+    if (m.to === 'all') { for (const p of lobby.players.values()) if (p !== me) p.socket.send(m.msg); }
+    else lobby.players.get(m.to)?.socket.send(m.msg);
   };
-  const helloTimeout = setTimeout(() => { if (!role) socket.close(); }, 10000);
+  const helloTimeout = setTimeout(() => { if (!me) socket.close(); }, 10000);
   socket.onclose = () => {
     clearTimeout(helloTimeout);
-    if (role === 'host' && rooms.get(code) === room) {
-      rooms.delete(code); log('Матч ' + code + ' закрыт');
-      for (const g of room.guests.values()) { g.socket.send({ type: 'relay-error', reason: 'host_left' }); g.socket.close(); }
-    } else if (role === 'guest' && room.guests.get(id)?.socket === socket) {
-      room.guests.delete(id);
-      if (rooms.get(code) === room) { room.host.send({ type: 'peer-leave', peer: id }); broadcastLobby(room); }
-      log('Игрок ' + name + ' вышел из ' + code);
+    if (!me || lobby.players.get(me.id) !== me) return;
+    lobby.players.delete(me.id);
+    log(me.name + ' вышел с сервера');
+    if (lobby.state === 'playing') {
+      if (me.id === lobby.hostId) endMatch('host_left');
+      else lobby.players.get(lobby.hostId)?.socket.send({ type: 'peer-leave', peer: me.id });
     }
+    broadcastLobby();
   };
   if (head.length) { socket.buffer = head; socket.parse(); }
 });
+
+// ---------------------------------------------------------------- server console
+const HELP = `Команды сервера:
+  op <ник>      сделать игрока администратором (может выбирать карту и начинать матч)
+  deop <ник>    снять права администратора
+  ops           список администраторов
+  list          кто сейчас на сервере
+  kick <ник>    отключить игрока
+  stop          остановить сервер
+  help          эта справка`;
+async function setOps(list) { ops = new Set(list.map(n => n.toLowerCase())); await saveOps([...ops]); broadcastLobby(); }
+function command(line) {
+  const [cmd, ...rest] = line.trim().split(/\s+/), arg = cleanName(rest.join(' '));
+  switch ((cmd || '').toLowerCase()) {
+    case '': return;
+    case 'help': console.log(HELP); return;
+    case 'op':
+      if (!arg) return console.log('Укажите ник: op <ник>');
+      setOps([...ops, arg]).then(() => console.log(arg + ' теперь администратор сервера.' + (nameRegistered(arg) ? '' : ' Совет: зарегистрируйте этот ник аккаунтом на сервере, чтобы его никто не занял.')));
+      return;
+    case 'deop':
+      if (!ops.has(arg.toLowerCase())) return console.log(arg + ' не администратор.');
+      setOps([...ops].filter(n => n !== arg.toLowerCase())).then(() => console.log(arg + ' больше не администратор.'));
+      return;
+    case 'ops': console.log(ops.size ? 'Администраторы: ' + [...ops].join(', ') : 'Администраторов нет — начать матч может первый игрок в лобби. Назначьте: op <ник>'); return;
+    case 'list': {
+      const names = [...lobby.players.values()].map(p => p.name + (isOp(p.name) ? ' (op)' : '') + (p.id === lobby.hostId ? ' — ведёт матч' : ''));
+      console.log(names.length ? `Игроков ${names.length}/${MAX_PLAYERS}: ` + names.join(', ') : 'На сервере никого нет.'); return;
+    }
+    case 'kick': {
+      const p = [...lobby.players.values()].find(p => p.name.toLowerCase() === arg.toLowerCase());
+      if (!p) return console.log('Игрока ' + arg + ' нет на сервере.');
+      p.socket.send({ type: 'relay-error', reason: 'kicked' }); p.socket.close(); console.log(p.name + ' отключён.'); return;
+    }
+    case 'stop': console.log('Сервер остановлен.'); process.kill(process.pid, 'SIGTERM'); return;
+    default: console.log('Неизвестная команда. help — список команд.');
+  }
+}
+if (process.stdin.isTTY || process.env.BREACHLINE_CONSOLE) {
+  require('readline').createInterface({ input: process.stdin }).on('line', command);
+}
 
 server.on('error', e => {
   console.error(e.code === 'EADDRINUSE' ? 'Порт ' + PORT + ' занят. Укажите другой: node server.js 8088' : e.message);
   process.exit(1);
 });
-ready.then(() => server.listen(PORT, '0.0.0.0', () => {
+ready.then(async () => {
+  // admins: saved ones plus BREACHLINE_OPS (comma-separated) for hosting without a console
+  ops = new Set([...(await loadOps()), ...String(process.env.BREACHLINE_OPS || '').split(',').map(cleanName).filter(Boolean)].map(n => n.toLowerCase()));
+}).then(() => server.listen(PORT, '0.0.0.0', () => {
   console.log('Breachline «' + SERVER_NAME + '»: http://localhost:' + PORT + '/');
   console.log('  данные: ' + storageInfo());
+  if (process.env.RENDER && storageKind() === 'files')
+    console.warn('  ВНИМАНИЕ: DATABASE_URL не задан — аккаунты лежат в файлах контейнера и пропадут при следующем деплое. См. README, «Размещение на Render».');
   for (const a of lanAddresses()) console.log('  в локальной сети: http://' + a + ':' + PORT + '/');
+  console.log(ops.size ? '  администраторы: ' + [...ops].join(', ') : '  администраторов нет — назначьте: op <ник>  (help — все команды)');
 }), e => { console.error(e.message); process.exit(1); });

@@ -5,7 +5,7 @@
  *                        Survives redeploys of a hosting container. Needs the "pg" package.
  *   otherwise          → files in BREACHLINE_DATA (default ./data): accounts.json, saves/, avatars/.
  *
- * Keys: "accounts" (users and sessions), "save/<user id>", "avatar/<user id>".
+ * Keys: "accounts" (users and sessions), "ops" (server admins), "save/<user id>", "avatar/<user id>".
  */
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -15,6 +15,7 @@ class FileStore {
   constructor(dir) { this.dir = dir; this.kind = 'files'; }
   file(key) {
     if (key === 'accounts') return path.join(this.dir, 'accounts.json');
+    if (key === 'ops') return path.join(this.dir, 'ops.json');
     const [kind, id] = key.split('/');
     if (!/^[0-9a-f-]{36}$/.test(id || '')) throw Error('bad storage key ' + key);
     return kind === 'save' ? path.join(this.dir, 'saves', id + '.json') : path.join(this.dir, 'avatars', id);

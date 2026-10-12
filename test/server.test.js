@@ -12,14 +12,14 @@ let server, dir, base, port;
 const PG = !!process.env.DATABASE_URL;
 async function stored(key) {
   if (!PG) {
-    const file = key === 'accounts' ? 'accounts.json' : key.replace(/^save\//, 'saves/').replace(/$/, key.startsWith('save/') ? '.json' : '');
+    const file = key === 'accounts' || key === 'ops' ? key + '.json' : key.replace(/^save\//, 'saves/').replace(/$/, key.startsWith('save/') ? '.json' : '');
     return readFile(path.join(dir, file)).catch(() => null);
   }
   const { Client } = require('pg'); const c = new Client({ connectionString: process.env.DATABASE_URL }); await c.connect();
   try { const r = await c.query('SELECT value FROM breachline_kv WHERE key = $1', [key]); return r.rows[0]?.value || null; } finally { await c.end(); }
 }
 async function startServer() {
-  server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir }, stdio: ['ignore','pipe','pipe'] });
+  server = spawn(process.execPath, ['server.js', String(port)], { cwd: path.join(__dirname, '..'), env: { ...process.env, BREACHLINE_DATA: dir, BREACHLINE_CONSOLE: '1' }, stdio: ['pipe','pipe','pipe'] });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', code => reject(Error('Server exited: '+code))); });
 }
 async function stopServer() { const s = server; server = null; if (s && s.exitCode === null) await new Promise(resolve => { s.once('exit', resolve); s.kill(); }); }
@@ -156,36 +156,56 @@ async function socket(cookie) {
   raw.write(`GET /ws HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${base}\r\n${cookie ? 'Cookie: ' + cookie + '\r\n' : ''}Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}\r\n\r\n`);
   return { close:()=>raw.destroy(), send(m) { const p=Buffer.from(JSON.stringify(m)), mask=crypto.randomBytes(4);let h;if(p.length<126)h=Buffer.from([129,128|p.length]);else {h=Buffer.alloc(4);h[0]=129;h[1]=254;h.writeUInt16BE(p.length,2);} for(let i=0;i<p.length;i++)p[i]^=mask[i%4];raw.write(Buffer.concat([h,mask,p])); }, next(){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('WebSocket timeout')),3000);const done=m=>{clearTimeout(timer);resolve(m);};if(messages.length)done(messages.shift());else waiters.push(done);});} };
 }
-test('multiplayer: lobby, invite list, reserved names, start and relay', async () => {
+// Type a command into the server console and wait for its answer line.
+async function consoleCmd(line, expect) {
+  let out = '';
+  const got = new Promise(resolve => { const on = d => { out += d; if (expect.test(out)) { server.stdout.off('data', on); resolve(out); } }; server.stdout.on('data', on); });
+  server.stdin.write(line + '\n');
+  return got;
+}
+test('multiplayer: server lobby, admins from the console, start, relay and late arrivals', async () => {
   const player = await api('register','POST',{ name:'Netplayer', password:'net-pass-123' });
-  const host = await socket(), guest = await socket(player.cookie), stranger = await socket(), impostor = await socket(), crowd = [];
+  const alice = await socket(), net = await socket(player.cookie), impostor = await socket(), twin = await socket(), late = [];
   const next = async (s, type) => { for (;;) { const m = await s.next(); if (!type || m.type === type) return m; } };
+  const hello = (s, name) => s.send({ type:'relay-hello', proto:'breachline-web/3', name });
   try {
-    host.send({ type:'relay-hello', proto:'breachline-web/2', role:'host', name:'Hoster', match:{ name:'Evening game', mode:'tdm', map:'harbor', max:3, allowed:['Netplayer','Friend'] } });
-    const ok = await next(host, 'relay-ok'); assert.match(ok.code, /^[A-Z2-9]{5}$/);
-    const lobby = await next(host, 'lobby'); assert.equal(lobby.room.state, 'lobby'); assert.equal(lobby.room.max, 3);
-    const listed = await (await fetch(base + '/api/rooms')).json();
-    assert.ok(listed.rooms.some(r => r.code === ok.code && r.name === 'Evening game' && r.mode === 'tdm'));
-    const ping = await fetch(base + '/api/ping'); assert.equal(ping.headers.get('access-control-allow-origin'), '*');
-    assert.equal((await ping.json()).matches >= 1, true);
-    stranger.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Stranger' });
-    assert.equal((await next(stranger, 'relay-error')).reason, 'not_invited');
-    impostor.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Netplayer' });
-    assert.equal((await next(impostor, 'relay-error')).reason, 'name_reserved');
-    guest.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code.toLowerCase(), name:'whatever' });
-    const g = await next(guest, 'relay-ok'); assert.equal(g.name, 'Netplayer');
-    const join = await next(host, 'peer-join'); assert.equal(join.peer, g.id); assert.equal(join.account, 'Netplayer');
-    assert.equal((await next(host, 'lobby')).room.players.length, 2);
-    for (let i = 0; i < 2; i++) { const c = await socket(); crowd.push(c); c.send({ type:'relay-hello', proto:'breachline-web/2', role:'guest', room:ok.code, name:'Friend' }); }
-    await next(crowd[0], 'relay-ok');
-    assert.equal((await next(crowd[1], 'relay-error')).reason, 'room_full');
-    host.send({ type:'start' });
-    let state; do state = (await next(guest, 'lobby')).room.state; while (state !== 'playing');
-    guest.send({ type:'input', keys:{ KeyW:true } });
-    let relayed; do relayed = await host.next(); while (!relayed.from);
-    assert.deepEqual(relayed, { from:g.id, msg:{ type:'input', keys:{ KeyW:true } } });
-    host.send({ to:'all', msg:{ type:'state', payload:'x'.repeat(1000) } });
-    assert.equal((await next(guest, 'state')).payload.length, 1000);
-    host.close(); assert.equal((await next(guest, 'relay-error')).reason, 'host_left');
-  } finally { for (const s of [host, guest, stranger, impostor, ...crowd]) s.close(); }
+    hello(alice, 'Alice');
+    const a = await next(alice, 'joined');
+    let lob = (await next(alice, 'lobby')).lobby;
+    assert.equal(lob.state, 'lobby'); assert.equal(lob.players[0].leader, true); // no admins yet: the first player leads
+    hello(impostor, 'Netplayer'); assert.equal((await next(impostor, 'relay-error')).reason, 'name_reserved');
+    hello(twin, 'alice'); assert.equal((await next(twin, 'relay-error')).reason, 'name_in_use');
+    hello(net, 'whatever');
+    const n = await next(net, 'joined'); assert.equal(n.name, 'Netplayer');
+    const ping = await (await fetch(base + '/api/ping')).json(); assert.equal(ping.players, 2); assert.equal(ping.state, 'lobby');
+    // admins come from the console; afterwards only they may change settings and start
+    await consoleCmd('op Netplayer', /Netplayer теперь администратор/);
+    do lob = (await next(alice, 'lobby')).lobby; while (!lob.opsSet);
+    assert.equal(lob.players.find(p => p.name === 'Netplayer').op, true);
+    alice.send({ type:'start' }); assert.equal((await next(alice, 'notice')).reason, 'not_admin');
+    net.send({ type:'settings', settings:{ mode:'tdm', map:'harbor', target:5, diff:'hard' } });
+    do lob = (await next(alice, 'lobby')).lobby; while (lob.settings.map !== 'harbor');
+    assert.deepEqual(lob.settings, { mode:'tdm', map:'harbor', target:5, diff:'hard' });
+    net.send({ type:'start' });
+    const role = await next(net, 'role'); assert.equal(role.role, 'host'); assert.deepEqual(role.peers.map(p => p.name), ['Alice']);
+    assert.equal((await next(alice, 'role')).role, 'guest');
+    alice.send({ type:'input', keys:{ KeyW:true } });
+    let relayed; do relayed = await net.next(); while (!relayed.from);
+    assert.deepEqual(relayed, { from:a.id, msg:{ type:'input', keys:{ KeyW:true } } });
+    net.send({ to:'all', msg:{ type:'state', payload:'x'.repeat(1000) } });
+    assert.equal((await next(alice, 'state')).payload.length, 1000);
+    // somebody arriving mid-match goes straight in as a guest
+    const c = await socket(); late.push(c); hello(c, 'Latecomer');
+    assert.equal((await next(c, 'role')).role, 'guest');
+    assert.equal((await next(net, 'peer-join')).name, 'Latecomer');
+    // the host goes back to the lobby: everyone returns there, still connected
+    net.send({ type:'end' });
+    await next(alice, 'match-end'); await next(c, 'match-end');
+    do lob = (await next(alice, 'lobby')).lobby; while (lob.state !== 'lobby');
+    // the admin list is saved in storage; a host who disconnects mid-match ends it for all
+    assert.match(await consoleCmd('ops', /Администраторы|Администраторов/), /netplayer/);
+    assert.match((await stored('ops')).toString(), /netplayer/);
+    net.send({ type:'start' }); await next(alice, 'role');
+    net.close(); assert.equal((await next(alice, 'match-end')).reason, 'host_left');
+  } finally { for (const s of [alice, net, impostor, twin, ...late]) s.close(); }
 });
