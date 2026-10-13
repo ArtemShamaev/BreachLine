@@ -43,7 +43,7 @@
     ['No shop in arms race','В гонке вооружений нет магазина'],['Arms race · every kill gives the next gun','Гонка вооружений · каждое убийство даёт следующее оружие'],
     ['Sudden death · next kill wins','Овертайм · следующее убийство решает'],['Kill limit reached','Достигнут лимит убийств'],['Time limit reached','Время матча истекло'],['Arms race completed','Гонка вооружений пройдена'],
     ['SPAWN SHIELD','ЗАЩИТА ПОСЛЕ ВОЗРОЖДЕНИЯ'],['FLASH','СВЕТОШУМ.'],['FIRE','ОГОНЬ'],
-    ['Multiplayer','Мультиплеер'],['Leaderboard','Рейтинг'],['Settings','Настройки'],['What’s new in 2.1','Что нового в 2.1'],['Version 2.1 · Season 1','Версия 2.1 · Сезон 1'],['What’s new','Что нового'],['Play','Играть'],
+    ['Multiplayer','Мультиплеер'],['Leaderboard','Рейтинг'],['Settings','Настройки'],['What’s new in 2.2','Что нового в 2.2'],['Version 2.2 · Season 1','Версия 2.2 · Сезон 1'],['What’s new','Что нового'],['Play','Играть'],
     ['Ranks and experience.','Звания и опыт.'],['Every finished match gives experience: 50 for playing, 150 for a win, 10 per kill. Ten ranks from Recruit to General; your rank is on the profile button.','Каждый доигранный матч даёт опыт: 50 за участие, 150 за победу, 10 за убийство. Десять званий от Рекрута до Генерала; ваше звание — на кнопке профиля.'],
     ['Leaderboard.','Рейтинг.'],['The best players by experience, wins and kills — the Leaderboard button in the menu.','Лучшие игроки по опыту, победам и убийствам — кнопка «Рейтинг» в меню.'],
     ['RL-7 rocket launcher.','Ракетница RL-7.'],['In the Heavy section of the shop and in arms race: a slow rocket with a big blast. Mind your own feet.','В разделе «Тяжёлое» магазина и в гонке вооружений: медленная ракета с большим взрывом. Не стреляйте себе под ноги.'],
@@ -91,7 +91,20 @@
     ['The account, stats, avatar and server save will be deleted permanently.','Аккаунт, статистика, аватар и серверное сохранение будут удалены безвозвратно.'],
 ['Log out','Выйти'],['LAN multiplayer','Игра по локальной сети'],['Guest nickname','Ник гостя'],['Room code','Код комнаты'],['Create room','Создать комнату'],['Join','Подключиться'],['Save match','Сохранить матч'],
     ['Open the server address on every computer. The host creates a room; others enter the same code.','Откройте адрес сервера на всех компьютерах. Ведущий создаёт комнату, остальные вводят тот же код.'],
-    ['Saved in account','Сохранено в аккаунте'],['Saved in browser','Сохранено в браузере'],['Signed in','Вход выполнен'],['Signed out','Вы вышли из аккаунта'],['Connection to host closed','Соединение с ведущим закрыто'],['Network closed','Сеть закрыта'],['Connecting to match…','Подключение к матчу…'],['You are in a network match. Press Resume.','Вы в сетевом матче. Нажмите «Продолжить».']
+    ['Saved in account','Сохранено в аккаунте'],['Saved in browser','Сохранено в браузере'],['Signed in','Вход выполнен'],['Signed out','Вы вышли из аккаунта'],['Connection to host closed','Соединение с ведущим закрыто'],['Network closed','Сеть закрыта'],['Connecting to match…','Подключение к матчу…'],['You are in a network match. Press Resume.','Вы в сетевом матче. Нажмите «Продолжить».'],
+    // arsenal: skins, cases, regulars
+    ['Arsenal','Арсенал'],['Skins · cases · regulars','Скины · кейсы · завсегдатаи'],['Skins','Скины'],['Cases','Кейсы'],['Regulars','Завсегдатаи'],
+    ['Equip','Надеть'],['Unequip','Снять'],['Wear','Износ'],['Pattern','Узор'],['Case','Кейс'],['Open','Открыть'],['Open another','Открыть ещё'],['Close','Закрыть'],
+    ['Opening','Открытие'],['Drops','Награды'],['None owned','Нет в наличии'],['Equipped','Надето'],['★ Rare special item','★ Редкий особый предмет'],['no other skins','других скинов нет'],
+    ['No skins yet. Open a case — you get one after every match.','Скинов пока нет. Откройте кейс — он даётся после каждого матча.'],
+    ['The people behind the bots. They keep their skins between matches and open cases too.','Люди за ботами. Их скины сохраняются между матчами, и кейсы они тоже открывают.'],
+    ['Entry fragger','Первый на заходе'],['Lurker','Одиночка'],['Sniper','Снайпер'],['Support','Поддержка'],['Site anchor','Держит точку'],['Rifler','Стрелок'],
+    ['Mil-Spec','Армейское'],['Restricted','Запрещённое'],['Classified','Засекреченное'],['Covert','Тайное'],['Exceedingly Rare','Крайне редкое'],
+    ['Factory New','Прямо с завода'],['Minimal Wear','Немного поношенное'],['Field-Tested','После полевых испытаний'],['Well-Worn','Поношенное'],['Battle-Scarred','Закалённое в боях'],
+    ['%1 unboxed %2','%1 открывает %2'],
+    ['Skins and cases.','Скины и кейсы.'],['43 weapon finishes in three cases, from Mil-Spec to ★ knives. Every copy is unique: its own pattern and wear, and some count your kills. Open them in the new Arsenal, equip them, inspect with F.','43 раскраски в трёх кейсах — от армейских до ★ ножей. Каждый экземпляр уникален: свой узор и износ, а некоторые считают ваши убийства. Открывайте их в новом Арсенале, надевайте, разглядывайте на F.'],
+    ['Drops and credits.','Награды и кредиты.'],['Every finished match gives a case and credits for kills and wins. Buy more cases or sell skins you don’t need.','За каждый доигранный матч — кейс и кредиты за убийства и победу. Покупайте ещё кейсы или продавайте ненужные скины.'],
+    ['The regulars.','Завсегдатаи.'],['The bots are now people: each has a favourite gun, a way of playing, their own skins, and they chat during the match. They open cases after matches too — see them on the Regulars tab.','Боты теперь — люди: у каждого любимое оружие, свой стиль игры, свои скины, и они пишут в чат во время матча. После матчей они тоже открывают кейсы — смотрите вкладку «Завсегдатаи».'],
   ];
   const en = new Map(pairs), ru = new Map(pairs.map(([a,b]) => [b,a]));
   // For text assembled in game code: translate the template before filling it in.
@@ -113,12 +126,16 @@
       .replace(/Spectating /g, 'Наблюдение: ').replace(/ HP · click to switch/g, ' ОЗ · нажмите для смены')
       .replace(/(Counter-Terrorists|Terrorists) take it (\d+–\d+) on /g, (_,team,score) => `${en.get(team)} побеждает ${score} на `)
       .replace(/(Enemy team eliminated|Time ran out|Target bombed|Bomb defused|Kill limit reached|Time limit reached|Arms race completed)/g, x => en.get(x))
+      .replace(/^Sell · (\d+) CR$/, 'Продать · $1 CR').replace(/^Sure\? Sell for (\d+) CR$/, 'Точно? Продать за $1 CR').replace(/^Buy · (\d+) CR$/, 'Купить · $1 CR').replace(/^Owned: (\d+)$/, 'В наличии: $1')
+      .replace(/^Lvl (\d+) · (.+)$/, (_, n, st) => `Ур. ${n} · ${en.get(st) || st}`).replace(/^Favourite: /, 'Любимое: ').replace(/^(\d+) skins · (\d+) cases opened$/, 'скинов: $1 · открыто кейсов: $2')
+      .replace(/ opened (.+ Case): $/, ' открывает $1: ').replace(/^ · equipped$/, ' · надел').replace(/ · pattern #/, ' · узор #')
+      .replace(/\b(Mil-Spec|Restricted|Classified|Covert|Exceedingly Rare|Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\b/g, x => en.get(x))
       .replace(/ dmg\)/g, ' урона)').replace(/DMG ([\d×]+) · (AUTO|SEMI) · (\d+) RDS/g, (_,d,m,n) => `УРОН ${d} · ${m === 'AUTO' ? 'АВТО' : 'ОДИН'} · ${n} ПАТР.`);
     return value;
   }
   function visit(root) {
     if (root.nodeType === 3) {
-      if (!root.parentElement || root.parentElement.closest('script,style,option,input,#accountName:not(.guest),#accountTitle:not(.guest),#accountSince,#lbSlots b,#lbCode,#ranksList b,#lbServer,#srvList b,#srvList small,#srvName,#srvAddr,.room b,#mpAs,#lanState,#username,#nickname,.kf span,td:first-child,#labels')) return;
+      if (!root.parentElement || root.parentElement.closest('script,style,option,input,#accountName:not(.guest),#accountTitle:not(.guest),#accountSince,#lbSlots b,#lbCode,#ranksList b,#lbServer,#srvList b,#srvList small,#srvName,#srvAddr,.room b,#mpAs,#lanState,#username,#nickname,.kf span,td:first-child,#labels,#chat,.skn,.skInfo h3,#unboxResult h3,.caseList,.regEq,.regHead b,.drop em,.spc')) return;
       const old = cache.get(root), current = root.nodeValue;
       const source = old && current === old.output ? old.source : current;
       const output = translate(source);

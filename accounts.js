@@ -9,6 +9,7 @@
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const storage = require('./storage');
+const SKINS = require('./skins.js');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
@@ -184,6 +185,13 @@ async function readBody(req) {
   throw new ApiError(400, 'bad_json');
 }
 function requireUser(user) { if (!user) throw new ApiError(401, 'unauthorized'); return user; }
+// The player's skins, cases and credits (see skins.js). Kept as the browser sends it; only the shape is checked.
+function validInventory(d) {
+  return !!d && d.v === 1 && Number.isFinite(d.date) && Number.isInteger(d.credits) && d.credits >= 0 && Array.isArray(d.items) && d.items.length <= 2000 &&
+    d.items.every(SKINS.validItem) && !!d.cases && typeof d.cases === 'object' && !Array.isArray(d.cases) &&
+    Object.entries(d.cases).every(([c, n]) => SKINS.CASES[c] && Number.isInteger(n) && n >= 0) &&
+    !!d.eq && typeof d.eq === 'object' && !Array.isArray(d.eq) && Object.values(d.eq).every(id => typeof id === 'string' && id.length <= 24);
+}
 function validSave(save) { return !!save && save.version === 1 && Number.isFinite(save.date) && Array.isArray(save.entities) && save.entities.length === 10; }
 
 // ---------------------------------------------------------------- shared identity (tickets)
@@ -296,6 +304,7 @@ const routes = {
     for (const [key, s] of Object.entries(db.sessions)) if (s.user === user.id) delete db.sessions[key];
     await persist();
     await store.del('save/' + user.id);
+    await store.del('inventory/' + user.id);
     await store.del('avatar/' + user.id);
     res.setHeader('Set-Cookie', cookie(req, '', 0));
     reply(res, 200, { ok: true });
@@ -351,6 +360,20 @@ const routes = {
     const { save } = await readBody(req);
     if (!validSave(save)) throw new ApiError(400, 'bad_save');
     await store.put('save/' + user.id, JSON.stringify(save));
+    reply(res, 200, { ok: true });
+  },
+
+  async 'GET /api/inventory'(req, res, user) {
+    requireUser(user);
+    const raw = await store.get('inventory/' + user.id);
+    reply(res, 200, { inventory: raw ? JSON.parse(raw.toString('utf8')) : null });
+  },
+
+  async 'PUT /api/inventory'(req, res, user) {
+    requireUser(user);
+    const { inventory } = await readBody(req);
+    if (!validInventory(inventory)) throw new ApiError(400, 'bad_inventory');
+    await store.put('inventory/' + user.id, JSON.stringify(inventory));
     reply(res, 200, { ok: true });
   },
 

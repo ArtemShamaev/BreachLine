@@ -60,7 +60,7 @@ const server = http.createServer(async (req, res) => {
       }
       return await handleAPI(req, res, url);
     }
-    const allowed = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js', '/maps.js': 'maps.js', '/i18n.js': 'i18n.js' };
+    const allowed = { '/': 'index.html', '/index.html': 'index.html', '/game.js': 'game.js', '/maps.js': 'maps.js', '/skins.js': 'skins.js', '/i18n.js': 'i18n.js' };
     const file = allowed[url.pathname];
     if (!file) { res.writeHead(404); return res.end('Not found'); }
     fs.readFile(path.join(ROOT, file), (err, data) => {

@@ -12,7 +12,7 @@ let server, dir, base, port;
 const PG = !!process.env.DATABASE_URL;
 async function stored(key) {
   if (!PG) {
-    const file = key === 'accounts' || key === 'ops' ? key + '.json' : key.replace(/^save\//, 'saves/').replace(/$/, key.startsWith('save/') ? '.json' : '');
+    const file = key === 'accounts' || key === 'ops' ? key + '.json' : key.replace(/^save\//, 'saves/').replace(/^inventory\//, 'inventories/').replace(/$/, /^(save|inventory)\//.test(key) ? '.json' : '');
     return readFile(path.join(dir, file)).catch(() => null);
   }
   const { Client } = require('pg'); const c = new Client({ connectionString: process.env.DATABASE_URL }); await c.connect();
@@ -91,6 +91,18 @@ test('password change and sign-out ends other sessions', async () => {
   const tablet = await api('login','POST',{ name:'Changer', password:'second-pass-2' });
   assert.equal((await api('logout-others','POST',{},changed.cookie)).data.revoked,1);
   assert.equal((await api('me','GET',null,tablet.cookie)).data.user,null);
+});
+test('inventory: skins, cases and credits are kept per account and checked', async () => {
+  const r = await api('register','POST',{ name:'Collector', password:'collect-pass-1' });
+  assert.equal((await api('inventory')).status,401);
+  assert.equal((await api('inventory','GET',null,r.cookie)).data.inventory,null);
+  const inventory = { v:1, date:5, credits:120, cases:{ sandline:2 }, items:[{ id:'abc123', s:'lb338:wyrmscale', f:.031, seed:661, kc:12 }], eq:{ lb338:'abc123' } };
+  assert.equal((await api('inventory','PUT',{ inventory },r.cookie)).status,200);
+  assert.deepEqual((await api('inventory','GET',null,r.cookie)).data.inventory,inventory);
+  for (const bad of [{ ...inventory, credits:-1 }, { ...inventory, items:[{ id:'x', s:'p9:nope', f:.1, seed:1, kc:null }] }, { ...inventory, cases:{ fake:1 } }, { ...inventory, items:[{ id:'x', s:'p9:gunmetal', f:2, seed:1, kc:null }] }])
+    assert.equal((await api('inventory','PUT',{ inventory:bad },r.cookie)).data.error,'bad_inventory');
+  assert.equal((await api('account','DELETE',{ password:'collect-pass-1' },r.cookie)).status,200);
+  assert.equal(await stored('inventory/' + r.data.user.id), null);
 });
 test('account deletion removes the account, sessions and save', async () => {
   const r = await api('register','POST',{ name:'Leaver', password:'leaving-pass-1' });

@@ -3,9 +3,9 @@
  *
  *   DATABASE_URL set   → PostgreSQL (Render Postgres, Neon, Supabase…), table breachline_kv.
  *                        Survives redeploys of a hosting container. Needs the "pg" package.
- *   otherwise          → files in BREACHLINE_DATA (default ./data): accounts.json, saves/, avatars/.
+ *   otherwise          → files in BREACHLINE_DATA (default ./data): accounts.json, saves/, avatars/, inventories/.
  *
- * Keys: "accounts" (users and sessions), "ops" (server admins), "identity" (signing key), "server" (this server's id and its account site's key), "save/<user id>", "avatar/<user id>".
+ * Keys: "accounts" (users and sessions), "ops" (server admins), "identity" (signing key), "server" (this server's id and its account site's key), "save/<user id>", "avatar/<user id>", "inventory/<user id>" (skins, cases, credits).
  */
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -19,11 +19,14 @@ class FileStore {
     if (['ops', 'identity', 'server'].includes(key)) return path.join(this.dir, key + '.json');
     const [kind, id] = key.split('/');
     if (!/^[0-9a-f-]{36}$/.test(id || '')) throw Error('bad storage key ' + key);
-    return kind === 'save' ? path.join(this.dir, 'saves', id + '.json') : path.join(this.dir, 'avatars', id);
+    if (kind === 'save') return path.join(this.dir, 'saves', id + '.json');
+    if (kind === 'inventory') return path.join(this.dir, 'inventories', id + '.json');
+    return path.join(this.dir, 'avatars', id);
   }
   async init() {
     await fs.mkdir(path.join(this.dir, 'saves'), { recursive: true, mode: 0o700 });
     await fs.mkdir(path.join(this.dir, 'avatars'), { recursive: true, mode: 0o700 });
+    await fs.mkdir(path.join(this.dir, 'inventories'), { recursive: true, mode: 0o700 });
     this.lock();
   }
   // Each server keeps the accounts in memory and rewrites the file, so two servers on one folder
